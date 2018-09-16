@@ -326,7 +326,8 @@ class BatchMAMLPolopt(RLAlgorithm):
         # TODO - make this a util
         flatten_list = lambda l: [item for sublist in l for item in sublist]
         config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.8
+        config.gpu_options.per_process_gpu_memory_fraction = 0.9
+        # with tf.Session(config=tf.ConfigProto(device_count={'GPU': 0})) as sess:
         with tf.Session(config=config) as sess:
             tf.set_random_seed(1)
             # Code for loading a previous policy. Somewhat hacky because needs to be in sess.

@@ -15,6 +15,8 @@ EXPERT_TRAJ_LOCATION_DICT = {
     ".local": "/home/rosen/maml_rl/saved_expert_traj/cheetah/CH-ET4-individual/",
     ".local_sparse": "/home/rosen/maml_rl/saved_expert_traj/cheetah_sparse/-1_1/",
     ".local_sparse_1": "/home/rosen/maml_rl/saved_expert_traj/cheetah_sparse/orig_-1_1/",
+    ".ec2_sparse": "/root/code/rllab/saved_expert_traj/cheetah_sparse/-1_1/",
+    ".ec2_sparse_1": "/root/code/rllab/saved_expert_traj/cheetah_sparse/orig_-1_1/",
     ".local_sparse_dummy": "/home/rosen/maml_rl/saved_expert_traj/cheetah_sparse/dummy/",
     ".local_incremental": "/home/rosen/maml_rl/saved_expert_traj/cheetah_sparse/incremental_vels/",
     ".ec2": "/root/code/rllab/saved_expert_traj/cheetah/CH-ET4-individual/",
