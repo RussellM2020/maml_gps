@@ -42,6 +42,7 @@ class BatchMAMLPolopt(RLAlgorithm):
             batch_size=100,
             max_path_length=500,
             meta_batch_size=100,
+            taskPoolSize = 100,
             num_grad_updates=1,
             num_grad_updates_for_testing=1,
             discount=0.99,
@@ -113,6 +114,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         self.scope = scope
         self.n_itr = n_itr
         self.start_itr = start_itr
+       
         # batch_size is the number of trajectories for one fast grad update.
         # self.batch_size is the number of total transitions to collect.
         self.batch_size = batch_size * max_path_length * meta_batch_size
@@ -130,7 +132,11 @@ class BatchMAMLPolopt(RLAlgorithm):
         self.store_paths = store_paths
         self.whole_paths = whole_paths
         self.fixed_horizon = fixed_horizon
+
+        self.taskPoolSize = taskPoolSize
         self.meta_batch_size = meta_batch_size  # number of tasks
+        assert meta_batch_size <= taskPoolSize
+
         self.num_grad_updates = num_grad_updates  # number of gradient steps during training
         self.num_grad_updates_for_testing = num_grad_updates_for_testing  # number of gradient steps during training
         self.use_maml_il = use_maml_il
@@ -355,7 +361,14 @@ class BatchMAMLPolopt(RLAlgorithm):
             self.start_worker()
             start_time = time.time()
             self.metaitr=0
+            
+            all_expert_trajs = self.load_expert_trajs()
+
             for itr in range(self.start_itr, self.n_itr):
+
+                taskBatch = np.random.choice(np.arange(self.taskPoolSize), self.meta_batch_size)
+                expert_trajs_for_meta_itr = {i: all_expert_trajs[t] for i,t in enumerate(taskBatch)}
+
                 itr_start_time = time.time()
                 np.random.seed(self.seed+itr)
                 tf.set_random_seed(self.seed+itr)
@@ -369,57 +382,9 @@ class BatchMAMLPolopt(RLAlgorithm):
                     num_inner_updates = self.num_grad_updates_for_testing if itr in self.testing_itrs else self.num_grad_updates
                     if self.use_maml_il and itr not in self.testing_itrs:
                         if not self.use_pooled_goals:
-                            assert False, "deprecated"
-                        expert_traj_for_metaitr = {}
+                            assert False, "deprecated"       
                         print("debug, goals_idxs_for_itr", self.goals_idxs_for_itr_dict[itr])
-                        for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr]):
-                            demos_path = self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl"
-                            # logger.log("loading demos path %s" % demos_path)
-                            demos = joblib.load(demos_path)
-                            # conversion code from Chelsea's format
-                            if type(demos) is dict and 'demoU' in demos.keys():
-                                converted_demos = []
-                                for i,demoU in enumerate(demos['demoU']):
-                                    if int(demos['xml'][-5]) % 2 == 0 and not self.debug_pusher:
-                                        #flips the object and the distractor
-                                        demoX = pusher_env.shuffle_demo(demos['demoX'][i])
-                                        if i ==0:
-                                            print("using demo xml and flipping", demos['xml'])
-
-                                    else:
-                                        demoX = demos['demoX'][i]
-                                        if i==0:
-                                            print("using demo xml", demos['xml'])
-                                    if self.extra_input is not None:
-                                        extra = np.zeros((np.shape(demoX)[0], self.extra_input_dim))
-                                        demoX = np.concatenate((demoX, extra), -1)
-
-                                    converted_demos.append({'observations': demoX, 'actions': demoU})
-                                # print("debug, using xml for demos", demos['xml'])
-                                expert_traj_for_metaitr[t] = converted_demos
-                            else:
-                                if self.extra_input is not None:
-                                    demos_plus_ei=[]
-                                    for demo in demos:
-                                        extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
-                                        obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
-                                        demo['observations'] = obs_plus_ei
-                                        demos_plus_ei.append(demo)
-                                    expert_traj_for_metaitr[t] = demos_plus_ei
-                                else:
-                                    expert_traj_for_metaitr[t] = demos
-                        # expert_traj_for_metaitr = {t : joblib.load(self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl") for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr])}
-                        expert_traj_for_metaitr = {t: expert_traj_for_metaitr[t] for t in range(self.meta_batch_size)}
-
-                        if self.limit_demos_num is not None:
-                            print("limit_demos_num", self.limit_demos_num)
-                            expert_traj_for_metaitr = {t:rd.sample(expert_traj_for_metaitr[t],self.limit_demos_num) for t in expert_traj_for_metaitr.keys()}
-                            # expert_traj_for_metaitr = {t:expert_traj_for_metaitr[t][:self.limit_demos_num] for t in expert_traj_for_metaitr.keys()}
-                        for t in expert_traj_for_metaitr.keys():
-
-                            for path in expert_traj_for_metaitr[t]:
-                                if 'expert_actions' not in path.keys():
-                                    path['expert_actions'] = np.clip(deepcopy(path['actions']), -1.0, 1.0)
+                 
                     for beta_step in beta_steps_range:
                         all_samples_data_for_betastep = []
                         print("debug, pre-update std modifier")
@@ -460,7 +425,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                             elif step == num_inner_updates:
                                 print("debug12.2, expert traj")
                                 paths = self.obtain_agent_info_offpolicy(itr=itr,
-                                                                         offpol_trajs=expert_traj_for_metaitr,
+                                                                         offpol_trajs=expert_trajs_for_meta_itr,
                                                                          treat_as_expert_traj=True,
                                                                          log_prefix=str(beta_step)+"_"+str(step))
                             else:
@@ -485,7 +450,7 @@ class BatchMAMLPolopt(RLAlgorithm):
 
                             # for logging purposes
                             self.process_samples(itr, flatten_list(paths.values()), prefix=str(step), log=True, fast_process=True, testitr=testitr, metalearn_baseline=self.metalearn_baseline)
-                            if itr not in self.testing_itrs:
+                            if itr in self.testing_itrs:
                                 self.log_diagnostics(flatten_list(paths.values()), prefix=str(step))
 
 
@@ -511,11 +476,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                         # This needs to take all samples_data so that it can construct graph for meta-optimization.
                         start_loss = self.optimize_policy(itr, all_samples_data_for_betastep)
 
-
-
-
-                    if itr not in self.testing_itrs:
-              
+                    if itr not in self.testing_itrs:              
                         self.metaitr += 1
                     logger.log("Saving snapshot...")
                     params = self.get_itr_snapshot(itr, all_samples_data_for_betastep[-1])  # , **kwargs)
@@ -526,134 +487,189 @@ class BatchMAMLPolopt(RLAlgorithm):
                     logger.log("Saved")
                     logger.record_tabular('Time', time.time() - start_time)
                     logger.record_tabular('ItrTime', time.time() - itr_start_time)
-
                     logger.dump_tabular(with_prefix=False)
 
-                    # The rest is some example plotting code.
-                    # Plotting code is useful for visualizing trajectories across a few different tasks.
-                    if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass
-                        logger.log("Saving visualization of paths")
-                        for ind in range(min(5, self.meta_batch_size)):
-                            plt.clf()
-                            plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
-                            plt.hold(True)
+                    self.plotTrajs(itr, all_paths_for_plotting)
+                    self.shutdown_worker()
 
-                            preupdate_paths = all_paths_for_plotting[0]
-                            postupdate_paths = all_paths_for_plotting[-1]
+    
 
-                            pre_points = preupdate_paths[ind][0]['observations']
-                            post_points = postupdate_paths[ind][0]['observations']
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
 
-                            pre_points = preupdate_paths[ind][1]['observations']
-                            post_points = postupdate_paths[ind][1]['observations']
-                            plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
+    def load_expert_trajs(self):
+        all_expert_trajs = {}
+        taskList = np.random.choice(np.arange(len(self.goals_pool)) , self.taskPoolSize )
+        for t, taskidx in enumerate(taskList):
+            demos_path = self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl"
+            # logger.log("loading demos path %s" % demos_path)
+            demos = joblib.load(demos_path)
+            # conversion code from Chelsea's format
+            if type(demos) is dict and 'demoU' in demos.keys():
+                converted_demos = []
+                for i,demoU in enumerate(demos['demoU']):
+                    if int(demos['xml'][-5]) % 2 == 0 and not self.debug_pusher:
+                        #flips the object and the distractor
+                        demoX = pusher_env.shuffle_demo(demos['demoX'][i])
+                        if i ==0:
+                            print("using demo xml and flipping", demos['xml'])
+                    else:
+                        demoX = demos['demoX'][i]
+                        if i==0:
+                            print("using demo xml", demos['xml'])
+                    if self.extra_input is not None:
+                        extra = np.zeros((np.shape(demoX)[0], self.extra_input_dim))
+                        demoX = np.concatenate((demoX, extra), -1)
 
-                            pre_points = preupdate_paths[ind][2]['observations']
-                            post_points = postupdate_paths[ind][2]['observations']
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
+                    converted_demos.append({'observations': demoX, 'actions': demoU})
+                # print("debug, using xml for demos", demos['xml'])
+                all_expert_trajs[t] = converted_demos
+            else:
+                if self.extra_input is not None:
+                    demos_plus_ei=[]
+                    for demo in demos:
+                        extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
+                        obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
+                        demo['observations'] = obs_plus_ei
+                        demos_plus_ei.append(demo)
+                    all_expert_trajs[t] = demos_plus_ei
+                else:
+                    all_expert_trajs[t] = demos
 
-                            plt.plot(0,0, 'k.', markersize=5)
-                            plt.xlim([-0.8, 0.8])
-                            plt.ylim([-0.8, 0.8])
-                            plt.legend(['goal', 'preupdate path', 'postupdate path'])
-                            plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
-                            print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
-                    elif True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 8:  # 2D reacher
-                        logger.log("Saving visualization of paths")
 
-                        # def fingertip(env):
-                        #     while 'get_body_com' not in dir(env):
-                        #         env = env.wrapped_env
-                        #     return env.get_body_com('fingertip')
+        #all_expert_trajs = {t: all_expert_trajs[t] for t in range(self.meta_batch_size)}
 
-                        for ind in range(min(5, self.meta_batch_size)):
-                            plt.clf()
-                            print("debug13,",itr,ind)
-                            a = self.goals_to_use_dict[itr][ind]
-                            plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
-                            plt.hold(True)
+        if self.limit_demos_num is not None:
+            print("limit_demos_num", self.limit_demos_num)
+            all_expert_trajs = {t:rd.sample(all_expert_trajs[t],self.limit_demos_num) for t in all_expert_trajs.keys()}
+            # all_expert_trajs = {t:all_expert_trajs[t][:self.limit_demos_num] for t in all_expert_trajs.keys()}
+        for t in all_expert_trajs.keys():
 
-                            preupdate_paths = all_paths_for_plotting[0]
-                            postupdate_paths = all_paths_for_plotting[-1]
+            for path in all_expert_trajs[t]:
+                if 'expert_actions' not in path.keys():
+                    path['expert_actions'] = np.clip(deepcopy(path['actions']), -1.0, 1.0)
 
-                            pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][0]['observations']])
-                            post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][0]['observations']])
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
+        return all_expert_trajs
 
-                            pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][1]['observations']])
-                            post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][1]['observations']])
-                            plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
 
-                            pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][2]['observations']])
-                            post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][2]['observations']])
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
+    def plotTrajs(self, itr , all_paths_for_plotting):
+        if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass
+            logger.log("Saving visualization of paths")
 
-                            plt.plot(0,0, 'k.', markersize=5)
-                            plt.xlim([-0.25, 0.25])
-                            plt.ylim([-0.25, 0.25])
-                            plt.legend(['goal', 'preupdate path', 'postupdate path'])
-                            plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
-                            print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+           
+            for ind in range(min(5, self.meta_batch_size)):
+                plt.clf()
+                plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
+                plt.hold(True)
 
-                            if self.make_video and itr in VIDEO_ITRS:
-                                logger.log("Saving videos...")
-                                self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
-                                video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
-                                rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
-                                        animated=True, speedup=2, save_video=True, video_filename=video_filename,
-                                        reset_arg=self.goals_to_use_dict[itr][ind],
-                                        use_maml=True, maml_task_index=ind,
-                                        maml_num_tasks=self.meta_batch_size)
-                    elif self.make_video and itr in VIDEO_ITRS:
-                        for ind in range(min(2, self.meta_batch_size)):
-                            logger.log("Saving videos...")
-                            self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
-                            video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
-                            rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
-                                    animated=True, speedup=2, save_video=True, video_filename=video_filename,
-                                    reset_arg=self.goals_to_use_dict[itr][ind],
-                                    use_maml=True, maml_task_index=ind,
-                                    maml_num_tasks=self.meta_batch_size, extra_input_dim=self.extra_input_dim)
-                        self.policy.switch_to_init_dist()
-                        for ind in range(min(2, self.meta_batch_size)):
-                            logger.log("Saving videos...")
-                            self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
-                            video_filename = osp.join(logger.get_snapshot_dir(), 'pre_path_%s_%s.gif' % (ind, itr))
-                            rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
-                                    animated=True, speedup=2, save_video=True, video_filename=video_filename,
-                                    reset_arg=self.goals_to_use_dict[itr][ind],
-                                    use_maml=False,
-                                    extra_input_dim = self.extra_input_dim,
-                                    # maml_task_index=ind,
-                                    # maml_num_tasks=self.meta_batch_size
-                                    )
-                    elif False and itr in PLOT_ITRS:  # swimmer or cheetah
-                        logger.log("Saving visualization of paths")
-                        for ind in range(min(5, self.meta_batch_size)):
-                            plt.clf()
-                            goal_vel = self.goals_to_use_dict[itr][ind]
-                            plt.title('Swimmer paths, goal vel='+str(goal_vel))
-                            plt.hold(True)
+                preupdate_paths = all_paths_for_plotting[0]
+                postupdate_paths = all_paths_for_plotting[-1]
 
-                            prepathobs = all_paths_for_plotting[0][ind][0]['observations']
-                            postpathobs = all_paths_for_plotting[-1][ind][0]['observations']
-                            plt.plot(prepathobs[:,0], prepathobs[:,1], '-r', linewidth=2)
-                            plt.plot(postpathobs[:,0], postpathobs[:,1], '--b', linewidth=1)
-                            plt.plot(prepathobs[-1,0], prepathobs[-1,1], 'r*', markersize=10)
-                            plt.plot(postpathobs[-1,0], postpathobs[-1,1], 'b*', markersize=10)
-                            plt.xlim([-1.0, 5.0])
-                            plt.ylim([-1.0, 1.0])
+                pre_points = preupdate_paths[ind][0]['observations']
+                post_points = postupdate_paths[ind][0]['observations']
+                plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
 
-                            plt.legend(['preupdate path', 'postupdate path'], loc=2)
-                            plt.savefig(osp.join(logger.get_snapshot_dir(), 'swim1d_prepost_itr' + str(itr) + '_id' + str(ind) + '.pdf'))
-        self.shutdown_worker()
+                pre_points = preupdate_paths[ind][1]['observations']
+                post_points = postupdate_paths[ind][1]['observations']
+                plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
+
+                pre_points = preupdate_paths[ind][2]['observations']
+                post_points = postupdate_paths[ind][2]['observations']
+                plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
+
+                plt.plot(0,0, 'k.', markersize=5)
+                plt.xlim([-0.8, 0.8])
+                plt.ylim([-0.8, 0.8])
+                plt.legend(['goal', 'preupdate path', 'postupdate path'])
+                plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+                print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+        elif True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 8:  # 2D reacher
+            logger.log("Saving visualization of paths")
+            for ind in range(min(5, self.meta_batch_size)):
+                plt.clf()
+                print("debug13,",itr,ind)
+                a = self.goals_to_use_dict[itr][ind]
+                plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
+                plt.hold(True)
+
+                preupdate_paths = all_paths_for_plotting[0]
+                postupdate_paths = all_paths_for_plotting[-1]
+
+                pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][0]['observations']])
+                post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][0]['observations']])
+                plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
+
+                pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][1]['observations']])
+                post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][1]['observations']])
+                plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
+
+                pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][2]['observations']])
+                post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][2]['observations']])
+                plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
+
+                plt.plot(0,0, 'k.', markersize=5)
+                plt.xlim([-0.25, 0.25])
+                plt.ylim([-0.25, 0.25])
+                plt.legend(['goal', 'preupdate path', 'postupdate path'])
+                plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+                print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+
+                if self.make_video and itr in VIDEO_ITRS:
+                    logger.log("Saving videos...")
+                    self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
+                    video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
+                    rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
+                            animated=True, speedup=2, save_video=True, video_filename=video_filename,
+                            reset_arg=self.goals_to_use_dict[itr][ind],
+                            use_maml=True, maml_task_index=ind,
+                            maml_num_tasks=self.meta_batch_size)
+        elif self.make_video and itr in VIDEO_ITRS:
+            for ind in range(min(2, self.meta_batch_size)):
+                logger.log("Saving videos...")
+                self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
+                video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
+                rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
+                        animated=True, speedup=2, save_video=True, video_filename=video_filename,
+                        reset_arg=self.goals_to_use_dict[itr][ind],
+                        use_maml=True, maml_task_index=ind,
+                        maml_num_tasks=self.meta_batch_size, extra_input_dim=self.extra_input_dim)
+            self.policy.switch_to_init_dist()
+            for ind in range(min(2, self.meta_batch_size)):
+                logger.log("Saving videos...")
+                self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
+                video_filename = osp.join(logger.get_snapshot_dir(), 'pre_path_%s_%s.gif' % (ind, itr))
+                rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
+                        animated=True, speedup=2, save_video=True, video_filename=video_filename,
+                        reset_arg=self.goals_to_use_dict[itr][ind],
+                        use_maml=False,
+                        extra_input_dim = self.extra_input_dim,
+                        # maml_task_index=ind,
+                        # maml_num_tasks=self.meta_batch_size
+                        )
+        elif False and itr in PLOT_ITRS:  # swimmer or cheetah
+            logger.log("Saving visualization of paths")
+            for ind in range(min(5, self.meta_batch_size)):
+                plt.clf()
+                goal_vel = self.goals_to_use_dict[itr][ind]
+                plt.title('Swimmer paths, goal vel='+str(goal_vel))
+                plt.hold(True)
+
+                prepathobs = all_paths_for_plotting[0][ind][0]['observations']
+                postpathobs = all_paths_for_plotting[-1][ind][0]['observations']
+                plt.plot(prepathobs[:,0], prepathobs[:,1], '-r', linewidth=2)
+                plt.plot(postpathobs[:,0], postpathobs[:,1], '--b', linewidth=1)
+                plt.plot(prepathobs[-1,0], prepathobs[-1,1], 'r*', markersize=10)
+                plt.plot(postpathobs[-1,0], postpathobs[-1,1], 'b*', markersize=10)
+                plt.xlim([-1.0, 5.0])
+                plt.ylim([-1.0, 1.0])
+
+                plt.legend(['preupdate path', 'postupdate path'], loc=2)
+                plt.savefig(osp.join(logger.get_snapshot_dir(), 'swim1d_prepost_itr' + str(itr) + '_id' + str(ind) + '.pdf'))
+
 
     def log_diagnostics(self, paths, prefix):
         self.env.log_diagnostics(paths, prefix)

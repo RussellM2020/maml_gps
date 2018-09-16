@@ -375,130 +375,130 @@ class BatchMAMLPolopt(RLAlgorithm):
 
     def plot(self, itr):
         # wtf is this shit
-                    # The rest is some example plotting code.
-                    # Plotting code is useful for visualizing trajectories across a few different tasks.
-                    if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass
-                        logger.log("Saving visualization of paths")
-                        for ind in range(min(5, self.meta_batch_size)):
-                            plt.clf()
-                            plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
-                            plt.hold(True)
+        # The rest is some example plotting code.
+        # Plotting code is useful for visualizing trajectories across a few different tasks.
+        if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass
+            logger.log("Saving visualization of paths")
+            for ind in range(min(5, self.meta_batch_size)):
+                plt.clf()
+                plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
+                plt.hold(True)
 
-                            preupdate_paths = all_paths_for_plotting[0]
-                            postupdate_paths = all_paths_for_plotting[-1]
+                preupdate_paths = all_paths_for_plotting[0]
+                postupdate_paths = all_paths_for_plotting[-1]
 
-                            pre_points = preupdate_paths[ind][0]['observations']
-                            post_points = postupdate_paths[ind][0]['observations']
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
+                pre_points = preupdate_paths[ind][0]['observations']
+                post_points = postupdate_paths[ind][0]['observations']
+                plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
 
-                            pre_points = preupdate_paths[ind][1]['observations']
-                            post_points = postupdate_paths[ind][1]['observations']
-                            plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
+                pre_points = preupdate_paths[ind][1]['observations']
+                post_points = postupdate_paths[ind][1]['observations']
+                plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
 
-                            pre_points = preupdate_paths[ind][2]['observations']
-                            post_points = postupdate_paths[ind][2]['observations']
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
+                pre_points = preupdate_paths[ind][2]['observations']
+                post_points = postupdate_paths[ind][2]['observations']
+                plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
 
-                            plt.plot(0,0, 'k.', markersize=5)
-                            plt.xlim([-0.8, 0.8])
-                            plt.ylim([-0.8, 0.8])
-                            plt.legend(['goal', 'preupdate path', 'postupdate path'])
-                            plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
-                            print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
-                    elif True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 8:  # 2D reacher
-                        logger.log("Saving visualization of paths")
+                plt.plot(0,0, 'k.', markersize=5)
+                plt.xlim([-0.8, 0.8])
+                plt.ylim([-0.8, 0.8])
+                plt.legend(['goal', 'preupdate path', 'postupdate path'])
+                plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+                print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+        elif True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 8:  # 2D reacher
+            logger.log("Saving visualization of paths")
 
-                        # def fingertip(env):
-                        #     while 'get_body_com' not in dir(env):
-                        #         env = env.wrapped_env
-                        #     return env.get_body_com('fingertip')
+            # def fingertip(env):
+            #     while 'get_body_com' not in dir(env):
+            #         env = env.wrapped_env
+            #     return env.get_body_com('fingertip')
 
-                        for ind in range(min(5, self.meta_batch_size)):
-                            plt.clf()
-                            print("debug13,",itr,ind)
-                            a = self.goals_to_use_dict[itr][ind]
-                            plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
-                            plt.hold(True)
+            for ind in range(min(5, self.meta_batch_size)):
+                plt.clf()
+                print("debug13,",itr,ind)
+                a = self.goals_to_use_dict[itr][ind]
+                plt.plot(self.goals_to_use_dict[itr][ind][0], self.goals_to_use_dict[itr][ind][1], 'k*', markersize=10)
+                plt.hold(True)
 
-                            preupdate_paths = all_paths_for_plotting[0]
-                            postupdate_paths = all_paths_for_plotting[-1]
+                preupdate_paths = all_paths_for_plotting[0]
+                postupdate_paths = all_paths_for_plotting[-1]
 
-                            pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][0]['observations']])
-                            post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][0]['observations']])
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
+                pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][0]['observations']])
+                post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][0]['observations']])
+                plt.plot(pre_points[:,0], pre_points[:,1], '-r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-b', linewidth=1)
 
-                            pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][1]['observations']])
-                            post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][1]['observations']])
-                            plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
+                pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][1]['observations']])
+                post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][1]['observations']])
+                plt.plot(pre_points[:,0], pre_points[:,1], '--r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '--b', linewidth=1)
 
-                            pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][2]['observations']])
-                            post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][2]['observations']])
-                            plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
-                            plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
+                pre_points = np.array([obs[6:8] for obs in preupdate_paths[ind][2]['observations']])
+                post_points = np.array([obs[6:8] for obs in postupdate_paths[ind][2]['observations']])
+                plt.plot(pre_points[:,0], pre_points[:,1], '-.r', linewidth=2)
+                plt.plot(post_points[:,0], post_points[:,1], '-.b', linewidth=1)
 
-                            plt.plot(0,0, 'k.', markersize=5)
-                            plt.xlim([-0.25, 0.25])
-                            plt.ylim([-0.25, 0.25])
-                            plt.legend(['goal', 'preupdate path', 'postupdate path'])
-                            plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
-                            print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+                plt.plot(0,0, 'k.', markersize=5)
+                plt.xlim([-0.25, 0.25])
+                plt.ylim([-0.25, 0.25])
+                plt.legend(['goal', 'preupdate path', 'postupdate path'])
+                plt.savefig(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
+                print(osp.join(logger.get_snapshot_dir(), 'prepost_path' + str(ind) + '_' + str(itr) + '.png'))
 
-                            if self.make_video and itr in VIDEO_ITRS:
-                                logger.log("Saving videos...")
-                                self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
-                                video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
-                                rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
-                                        animated=True, speedup=2, save_video=True, video_filename=video_filename,
-                                        reset_arg=self.goals_to_use_dict[itr][ind],
-                                        use_maml=True, maml_task_index=ind,
-                                        maml_num_tasks=self.meta_batch_size)
-                    elif self.make_video and itr in VIDEO_ITRS:
-                        for ind in range(min(2, self.meta_batch_size)):
-                            logger.log("Saving videos...")
-                            self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
-                            video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
-                            rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
-                                    animated=True, speedup=2, save_video=True, video_filename=video_filename,
-                                    reset_arg=self.goals_to_use_dict[itr][ind],
-                                    use_maml=True, maml_task_index=ind,
-                                    maml_num_tasks=self.meta_batch_size, extra_input_dim=self.extra_input_dim)
-                        self.policy.switch_to_init_dist()
-                        for ind in range(min(2, self.meta_batch_size)):
-                            logger.log("Saving videos...")
-                            self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
-                            video_filename = osp.join(logger.get_snapshot_dir(), 'pre_path_%s_%s.gif' % (ind, itr))
-                            rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
-                                    animated=True, speedup=2, save_video=True, video_filename=video_filename,
-                                    reset_arg=self.goals_to_use_dict[itr][ind],
-                                    use_maml=False,
-                                    extra_input_dim = self.extra_input_dim,
-                                    # maml_task_index=ind,
-                                    # maml_num_tasks=self.meta_batch_size
-                                    )
-                    elif False and itr in PLOT_ITRS:  # swimmer or cheetah
-                        logger.log("Saving visualization of paths")
-                        for ind in range(min(5, self.meta_batch_size)):
-                            plt.clf()
-                            goal_vel = self.goals_to_use_dict[itr][ind]
-                            plt.title('Swimmer paths, goal vel='+str(goal_vel))
-                            plt.hold(True)
+                if self.make_video and itr in VIDEO_ITRS:
+                    logger.log("Saving videos...")
+                    self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
+                    video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
+                    rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
+                            animated=True, speedup=2, save_video=True, video_filename=video_filename,
+                            reset_arg=self.goals_to_use_dict[itr][ind],
+                            use_maml=True, maml_task_index=ind,
+                            maml_num_tasks=self.meta_batch_size)
+        elif self.make_video and itr in VIDEO_ITRS:
+            for ind in range(min(2, self.meta_batch_size)):
+                logger.log("Saving videos...")
+                self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
+                video_filename = osp.join(logger.get_snapshot_dir(), 'post_path_%s_%s.gif' % (ind, itr))
+                rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
+                        animated=True, speedup=2, save_video=True, video_filename=video_filename,
+                        reset_arg=self.goals_to_use_dict[itr][ind],
+                        use_maml=True, maml_task_index=ind,
+                        maml_num_tasks=self.meta_batch_size, extra_input_dim=self.extra_input_dim)
+            self.policy.switch_to_init_dist()
+            for ind in range(min(2, self.meta_batch_size)):
+                logger.log("Saving videos...")
+                self.env.reset(reset_args=self.goals_to_use_dict[itr][ind])
+                video_filename = osp.join(logger.get_snapshot_dir(), 'pre_path_%s_%s.gif' % (ind, itr))
+                rollout(env=self.env, agent=self.policy, max_path_length=self.max_path_length,
+                        animated=True, speedup=2, save_video=True, video_filename=video_filename,
+                        reset_arg=self.goals_to_use_dict[itr][ind],
+                        use_maml=False,
+                        extra_input_dim = self.extra_input_dim,
+                        # maml_task_index=ind,
+                        # maml_num_tasks=self.meta_batch_size
+                        )
+        elif False and itr in PLOT_ITRS:  # swimmer or cheetah
+            logger.log("Saving visualization of paths")
+            for ind in range(min(5, self.meta_batch_size)):
+                plt.clf()
+                goal_vel = self.goals_to_use_dict[itr][ind]
+                plt.title('Swimmer paths, goal vel='+str(goal_vel))
+                plt.hold(True)
 
-                            prepathobs = all_paths_for_plotting[0][ind][0]['observations']
-                            postpathobs = all_paths_for_plotting[-1][ind][0]['observations']
-                            plt.plot(prepathobs[:,0], prepathobs[:,1], '-r', linewidth=2)
-                            plt.plot(postpathobs[:,0], postpathobs[:,1], '--b', linewidth=1)
-                            plt.plot(prepathobs[-1,0], prepathobs[-1,1], 'r*', markersize=10)
-                            plt.plot(postpathobs[-1,0], postpathobs[-1,1], 'b*', markersize=10)
-                            plt.xlim([-1.0, 5.0])
-                            plt.ylim([-1.0, 1.0])
+                prepathobs = all_paths_for_plotting[0][ind][0]['observations']
+                postpathobs = all_paths_for_plotting[-1][ind][0]['observations']
+                plt.plot(prepathobs[:,0], prepathobs[:,1], '-r', linewidth=2)
+                plt.plot(postpathobs[:,0], postpathobs[:,1], '--b', linewidth=1)
+                plt.plot(prepathobs[-1,0], prepathobs[-1,1], 'r*', markersize=10)
+                plt.plot(postpathobs[-1,0], postpathobs[-1,1], 'b*', markersize=10)
+                plt.xlim([-1.0, 5.0])
+                plt.ylim([-1.0, 1.0])
 
-                            plt.legend(['preupdate path', 'postupdate path'], loc=2)
-                            plt.savefig(osp.join(logger.get_snapshot_dir(), 'swim1d_prepost_itr' + str(itr) + '_id' + str(ind) + '.pdf'))
+                plt.legend(['preupdate path', 'postupdate path'], loc=2)
+                plt.savefig(osp.join(logger.get_snapshot_dir(), 'swim1d_prepost_itr' + str(itr) + '_id' + str(ind) + '.pdf'))
 
     def _setup_goals(self, goals_pool_to_load, goals_pickle_to):
         if goals_pool_to_load is not None:
