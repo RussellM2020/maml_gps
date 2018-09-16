@@ -35,8 +35,8 @@ class BatchSampler(BaseSampler):
     def obtain_samples(self, itr, reset_args=None, return_dict=False, log_prefix='',extra_input=None,extra_input_dim=None,  save_img_obs=False, preupdate=True):
         if extra_input is not None:
             assert False, "not implemented"
-        if not preupdate:
-            assert False, "not implemented"
+        # if not preupdate:
+        #     assert False, "not implemented"
         init_policy_params = cur_policy_params = self.algo.policy.get_param_values()
         if hasattr(self.algo.env,"get_param_values"):
             try:
@@ -49,13 +49,22 @@ class BatchSampler(BaseSampler):
         start = time.time()
         if type(reset_args) != list and type(reset_args)!=np.ndarray:
             reset_args = [reset_args]*self.n_envs
-        if hasattr(self.algo.policy, 'all_param_vals'): #TODO: RK, need to make this less hacky and still work with non-maml policies
-            if self.algo.policy.all_param_vals:
-                cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
+
+        if not preupdate:
+            assert  hasattr(self.algo.policy, 'all_param_vals')
+            assert  self.algo.policy.all_param_vals is not None
+            cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
+            #all_param_vals have the updated values of the parameters, set in compute_updated_dist
+            
+        else:
+            if hasattr(self.algo.policy, 'all_param_vals'): #TODO: RK, need to make this less hacky and still work with non-maml policies
+                if self.algo.policy.all_param_vals:
+                    cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
+                else:
+                    cur_policy_params = [cur_policy_params]*self.n_envs
             else:
                 cur_policy_params = [cur_policy_params]*self.n_envs
-        else:
-            cur_policy_params = [cur_policy_params]*self.n_envs
+
         # do tasks sequentially and parallelize within rollouts per task.
         paths = {}
         for i in range(self.n_envs):

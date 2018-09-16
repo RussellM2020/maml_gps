@@ -7,16 +7,19 @@ from sandbox.rocky.tf.spaces.discrete import Discrete
 from sandbox.rocky.tf.spaces.box import Box
 from sandbox.rocky.tf.spaces.product import Product
 from cached_property import cached_property
-
+from gym.spaces import Box as gymBox
 
 def to_tf_space(space):
-    if isinstance(space, TheanoBox):
+    if isinstance(space, TheanoBox) or isinstance(space, gymBox):
         return Box(low=space.low, high=space.high)
     elif isinstance(space, TheanoDiscrete):
         return Discrete(space.n)
     elif isinstance(space, TheanoProduct):
         return Product(list(map(to_tf_space, space.components)))
     else:
+
+        import ipdb
+        ipdb.set_trace()
         raise NotImplementedError
 
 

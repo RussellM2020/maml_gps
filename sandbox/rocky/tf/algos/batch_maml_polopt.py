@@ -161,8 +161,15 @@ class BatchMAMLPolopt(RLAlgorithm):
                 assert goals_pool_to_load is None, "expert_trajs already comes with its own goals, please disable goals_pool_to_load"
                 goals_pool = joblib.load(self.expert_trajs_dir+"goals_pool.pkl")
                 self.goals_pool = goals_pool['goals_pool']
-                self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
-                if "demos_path" in goals_pool.keys():
+                if 'idxs_dict' in goals_pool:
+                    self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
+                else:
+                    self.goals_idxs_for_dict = {}
+                    numTasks = len(self.goals_pool)
+                    assert self.meta_batch_size <= numTasks
+                    for i in range(self.n_itr):
+                        self.goals_idxs_for_itr_dict[i] = np.random.choice(np.arange(numTasks), self.meta_batch_size)
+            if "demos_path" in goals_pool.keys():
                     self.demos_path = goals_pool["demos_path"]
                 else:
                     self.demos_path = expert_trajs_dir
@@ -326,7 +333,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         # TODO - make this a util
         flatten_list = lambda l: [item for sublist in l for item in sublist]
         config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.9
+        config.gpu_options.allow_growth=True
         # with tf.Session(config=tf.ConfigProto(device_count={'GPU': 0})) as sess:
         with tf.Session(config=config) as sess:
             tf.set_random_seed(1)
@@ -474,14 +481,18 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 samples_data[tasknum] = self.process_samples(itr, paths[tasknum], log=False, fast_process=fast_process, testitr=testitr, metalearn_baseline=self.metalearn_baseline)
 
                             all_samples_data_for_betastep.append(samples_data)
-                            # for logging purposes only
+
+                            # for logging purposes
                             self.process_samples(itr, flatten_list(paths.values()), prefix=str(step), log=True, fast_process=True, testitr=testitr, metalearn_baseline=self.metalearn_baseline)
+                            if itr not in self.testing_itrs:
+                                self.log_diagnostics(flatten_list(paths.values()), prefix=str(step))
+
+
                             if step == num_inner_updates:
                                 logger.record_tabular("AverageReturnLastTest", self.sampler.memory["AverageReturnLastTest"],front=True)  #TODO: add functionality for multiple grad steps
                                 logger.record_tabular("TestItr", ("1" if testitr else "0"),front=True)
                                 logger.record_tabular("MetaItr", self.metaitr,front=True)
-                            # logger.log("Logging diagnostics...")
-                            # self.log_diagnostics(flatten_list(paths.values()), prefix=str(step))
+                           
 
                             if step == num_inner_updates-1:
                                 if itr not in self.testing_itrs:
@@ -502,9 +513,8 @@ class BatchMAMLPolopt(RLAlgorithm):
 
 
 
-                    if itr in self.testing_itrs:
-                        self.process_samples(itr, flatten_list(all_postupdate_paths), prefix="1",log=True,fast_process=True,testitr=True,metalearn_baseline=self.metalearn_baseline)
-                    else:
+                    if itr not in self.testing_itrs:
+              
                         self.metaitr += 1
                     logger.log("Saving snapshot...")
                     params = self.get_itr_snapshot(itr, all_samples_data_for_betastep[-1])  # , **kwargs)

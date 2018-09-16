@@ -435,7 +435,7 @@ class MAMLIL(BatchMAMLPolopt):
 
         else:
             logger.log("Not Optimizing")
-            logger.record_tabular("ILLoss",float('nan'))
+            #logger.record_tabular("ILLoss",float('nan'))
             return None
         # logger.log("Computing loss after")
       #  loss_after = self.optimizer.loss(input_vals_list)

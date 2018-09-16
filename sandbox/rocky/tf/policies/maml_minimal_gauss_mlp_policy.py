@@ -114,7 +114,7 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
                 self.all_params['std_param'] = make_param_layer(
                     num_units=self.action_dim,
                     param=tf.constant_initializer(init_std_param),
-                    name="output_std_param",
+                    name="mean_network/output_std_param",
                     trainable=learn_std,
                 )
                 forward_std = lambda x, params: forward_param_layer(x, params['std_param'])

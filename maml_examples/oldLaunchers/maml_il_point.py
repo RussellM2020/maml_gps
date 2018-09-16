@@ -2,9 +2,9 @@ from sandbox.rocky.tf.algos.maml_il import MAMLIL
 from rllab.baselines.linear_feature_baseline import LinearFeatureBaseline
 from rllab.baselines.gaussian_mlp_baseline import GaussianMLPBaseline
 from rllab.baselines.zero_baseline import ZeroBaseline
-#from maml_examples.point_env_randgoal_expert import PointEnvRandGoalExpert
+from maml_examples.point_env_randgoal_expert import PointEnvRandGoalExpert
 from maml_examples.point_env_randgoal import PointEnvRandGoal
-#from maml_examples.point_env_randgoal_oracle import PointEnvRandGoalOracle
+from maml_examples.point_env_randgoal_oracle import PointEnvRandGoalOracle
 from rllab.envs.normalized_env import normalize
 from rllab.misc.instrument import stub, run_experiment_lite
 from sandbox.rocky.tf.policies.maml_minimal_gauss_mlp_policy import MAMLGaussianMLPPolicy
@@ -16,8 +16,6 @@ from maml_examples.point_vars import POINT_GOALS_LOCATION, EXPERT_TRAJ_LOCATION_
 from maml_examples.maml_experiment_vars import MOD_FUNC
 import numpy as np
 import random as rd
-
-mode = 'local'
 beta_adam_steps_list = [(1,3)] #,(1,100)]  # , ## maybe try 1 and 10 to compare, we know that 1 is only slightly worse than 5
 
 fast_learning_rates = [1.0]  #1.0 seems to work best
@@ -100,7 +98,7 @@ for seed in seeds:
                                         importance_sampling_modifier=MOD_FUNC[""],
                                         post_std_modifier_train=post_std_modifier_train,
                                         post_std_modifier_test=post_std_modifier_test,
-                                        expert_trajs_dir=EXPERT_TRAJ_LOCATION_DICT["."+mode],
+                                        expert_trajs_dir=EXPERT_TRAJ_LOCATION_DICT[".ec2"],
                                     )
 
                                     run_experiment_lite(
@@ -126,7 +124,7 @@ for seed in seeds:
                                                  # +"_l2m" + str(l2loss_std_mult)
                                                  #+"_env" + str(env_option)
                                                  +"_"+time.strftime("%D_%H_%M").replace("/","."),
-                                        plot=False,mode=mode,
+                                        plot=False,mode='ec2',
                                     )
 
 
