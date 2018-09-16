@@ -194,9 +194,9 @@ class BatchMAMLPolopt(RLAlgorithm):
         return paths
 
     def query_expert(self, itr, paths, log_prefix=''):
-        for (path_num, path) in enumerate(paths):
-            task_num = self.goals_to_use_dict[itr][path_num]
-            path['expert_actions'], _, _, _ = self.experts[task_num].step(path['observations'])
+        for task_num in paths.keys():
+            for path in paths[task_num]:
+                path['expert_actions'], _, _, _ = self.experts[task_num].detstep(path['observations'])
         return paths
 
     def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
@@ -272,12 +272,14 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 if beta_step==0 and step < num_inner_updates:
                                     print("debug12.1, sample on-policy") #, self.goals_to_use_dict[itr])
                                     paths = self.obtain_samples(itr=itr, reset_args=self.goals_to_use_dict[itr], 
-                                        log_prefix=str(beta_step)+"_"+str(step),preupdate=True)
+                                        log_prefix=str(beta_step)+"_"+str(step), preupdate=True)
                                     if beta_step == 0 and step == 0:
                                         paths = store_agent_infos(paths)  # agent_infos_orig is populated here
                                         beta0_step0_paths = deepcopy(paths)
                                 elif step == num_inner_updates:
-                                    print("debug12.2, query expert for last on-policy sampled traj")
+                                    print("debug12.2, query expert for on-policy sampled traj")
+                                    paths = self.obtain_samples(itr=itr, reset_args=self.goals_to_use_dict[itr],
+                                                                    log_prefix=str(beta_step) + "_" + str(step), preupdate=False)
                                     paths = self.query_expert(itr=itr, paths=deepcopy(paths), log_prefix=str(beta_step)+"_"+str(step))
 
                             # process samples
