@@ -1,4 +1,6 @@
 data
+saved_expert_traj
+saved_goals
 *.pyc
 *-checkpoint.ipynb
 .DS_Store
