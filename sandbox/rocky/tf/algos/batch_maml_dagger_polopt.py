@@ -285,7 +285,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 elif step == num_inner_updates:
                                     print("debug12.2, query expert for on-policy sampled traj")
                                     paths = self.obtain_samples(itr=itr, reset_args=self.goals_to_use_dict[itr],
-                                        log_prefix=str(beta_step)+"_"+str(step), preupdate=False) #preupdate=True
+                                        log_prefix=str(beta_step)+"_"+str(step), preupdate=True) #preupdate=False
                                     paths = self.query_expert(itr=itr, paths=deepcopy(paths), log_prefix=str(beta_step)+"_"+str(step))
 
                             # process samples
@@ -304,6 +304,8 @@ class BatchMAMLPolopt(RLAlgorithm):
                                     testitr = False
                                 samples_data[tasknum] = self.process_samples(itr, paths[tasknum], log=False, 
                                     fast_process=fast_process, testitr=testitr, metalearn_baseline=self.metalearn_baseline)
+                                if itr not in self.testing_itr and step == num_inner_updates:
+                                    print(samples_data[tasknum]['expert_actions'][0])
 
                             all_samples_data_for_betastep.append(samples_data)
 
@@ -326,7 +328,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 else:
                                     print("debug, post update test std modifier")
                                     self.policy.std_modifier = self.post_std_modifier_test*self.policy.std_modifier
-                            if step < num_inner_updates: #and itr in self.testing_itrs:
+                            if step < num_inner_updates and itr in self.testing_itrs:
                                 logger.log("Computing policy updates...")
                                 self.policy.compute_updated_dists(samples=samples_data)
 
@@ -381,7 +383,6 @@ class BatchMAMLPolopt(RLAlgorithm):
             plotter.update_plot(self.policy, self.max_path_length)
 
     def plot_fn(self, itr):
-        # wtf is this shit
         # The rest is some example plotting code.
         # Plotting code is useful for visualizing trajectories across a few different tasks.
         if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass

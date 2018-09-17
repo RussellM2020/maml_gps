@@ -10,7 +10,7 @@ class DummyExpert():
         self.goal = joblib.load('/home/russellm/abhishek_sandbox/maml_imitation/saved_expert_traj/point/ETs_E1_randstart_test1/goals_pool.pkl')['goals_pool'][goal_num]
     
     def detstep(self, obs):
-        return 8*(self.goal - obs)/10.
+        return (self.goal - obs)
 
     def getLogProb(self, ob, action):
-        return -(self.detstep(ob) - action)**2 / np.linalg.norm(self.detstep(ob))
+        return -np.linalg.norm(self.detstep(ob) - action, axis=1)**2 / np.linalg.norm(self.detstep(ob), axis=-1)

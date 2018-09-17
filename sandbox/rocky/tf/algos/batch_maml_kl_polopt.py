@@ -303,6 +303,10 @@ class BatchMAMLPolopt(RLAlgorithm):
                                     testitr = False
                                 samples_data[tasknum] = self.process_samples(itr, paths[tasknum], log=False, 
                                     fast_process=fast_process, testitr=testitr, metalearn_baseline=self.metalearn_baseline)
+                                if 'expert_actions' in samples_data[tasknum] and not (itr not in self.testing_itrs and step == num_inner_updates):
+                                    # default shape is wrong..
+                                    # samples_data[tasknum]['expert_actions'] = [None] * len(samples_data[tasknum]['expert_actions'])
+                                    del samples_data[tasknum]['expert_actions']
 
                             all_samples_data_for_betastep.append(samples_data)
 
@@ -381,7 +385,6 @@ class BatchMAMLPolopt(RLAlgorithm):
             plotter.update_plot(self.policy, self.max_path_length)
 
     def plot_fn(self, itr):
-        # wtf is this shit
         # The rest is some example plotting code.
         # Plotting code is useful for visualizing trajectories across a few different tasks.
         if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass

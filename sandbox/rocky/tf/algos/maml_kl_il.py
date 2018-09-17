@@ -87,9 +87,9 @@ class MAMLIL(BatchMAMLPolopt):
                 #     'path_lengths' + stepnum + '_' + str(i),
                 #     ndim=1, dtype=tf.float32,
                 # ))
-            expert_action_vars.append(self.env.action_space.new_tensor_variable(
-                name='expert_actions' + stepnum + '_' + str(i),
-                extra_dims=1,
+            expert_action_vars.append(tensor_utils.new_tensor(
+                'expert_actions' + stepnum + '_' + str(i),
+                ndim=1, dtype=tf.float32,
             ))
         if not self.metalearn_baseline:
             return obs_vars, action_vars, adv_vars, expert_action_vars
@@ -280,7 +280,7 @@ class MAMLIL(BatchMAMLPolopt):
             stop_grad_logp = tf.stop_gradient(tf.identity(logp))
 
             # TODO: reduce variance by doing "reward to go" for each timestep
-            # TODO: ignore/weight entropy term
+            # TODO: ignore/weight entropy term?
             outer_surr_obj = tf.reduce_mean(
                 (tf.reduce_sum(stop_grad_logp - a_star, axis=-1)) * tf.reduce_sum(logp, axis=-1)
             )

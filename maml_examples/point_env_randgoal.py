@@ -21,6 +21,8 @@ class PointEnvRandGoal(Env):
         return np.random.uniform(-0.5, 0.5, size=(num_goals, 2, ))
 
     def reset(self, reset_args=None):
+
+       
         goal = reset_args
         if goal is not None:
             self._goal = goal
