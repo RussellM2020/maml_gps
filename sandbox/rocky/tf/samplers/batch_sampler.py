@@ -32,7 +32,7 @@ class BatchSampler(BaseSampler):
     def shutdown_worker(self):
         parallel_sampler.terminate_task(scope=self.algo.scope)
 
-    def obtain_samples(self, itr, reset_args=None, return_dict=False, log_prefix='',extra_input=None,extra_input_dim=None,  save_img_obs=False, preupdate=True):
+    def obtain_samples(self, itr, reset_args=None,  return_dict=False, log_prefix='',extra_input=None,extra_input_dim=None,  save_img_obs=False, preupdate=True, numTrajs_perTask = None):
         if extra_input is not None:
             assert False, "not implemented"
         # if not preupdate:
@@ -67,8 +67,12 @@ class BatchSampler(BaseSampler):
 
         # do tasks sequentially and parallelize within rollouts per task.
         paths = {}
+        import ipdb
+        ipdb.set_trace()
+        
+
         for i in range(self.n_envs):
-            paths[i] = parallel_sampler.sample_paths(
+            paths_i = parallel_sampler.sample_paths(
                 policy_params=cur_policy_params[i],
                 env_params=cur_env_params,
                 max_samples=self.algo.batch_size / self.n_envs,
@@ -77,6 +81,11 @@ class BatchSampler(BaseSampler):
                 reset_arg=reset_args[i],
                 show_prog_bar=False,
             )
+            if numTrajs_perTask !=None:
+                paths[i] = paths_i[:numTrajs_perTask]
+            else:
+                paths[i] = paths_i
+
         total_time = time.time() - start
         logger.record_tabular(log_prefix+"TotalExecTime", total_time)
 

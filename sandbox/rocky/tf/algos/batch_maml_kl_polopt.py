@@ -8,7 +8,6 @@ import matplotlib
 matplotlib.use('Pdf')
 import itertools
 
-
 import matplotlib.pyplot as plt
 import os.path as osp
 import rllab.misc.logger as logger
@@ -23,6 +22,7 @@ from rllab.misc.tensor_utils import split_tensor_dict_list, stack_tensor_dict_li
 from rllab.sampler.utils import rollout, joblib_dump_safe
 from maml_examples.maml_experiment_vars import TESTING_ITRS, PLOT_ITRS, VIDEO_ITRS, BASELINE_TRAINING_ITRS
 from maml_examples import pusher_env
+from expert_policies.expert_loaders import dummy_expert_loader
 
 class BatchMAMLPolopt(RLAlgorithm):
     """
@@ -146,7 +146,10 @@ class BatchMAMLPolopt(RLAlgorithm):
         self.extra_input_dim = extra_input_dim
         self.debug_pusher=debug_pusher
         self.experts_dir = experts_dir
-        self.experts_loader = experts_loader
+        experts_loader_dict = {
+            'dummy_expert_loader': dummy_expert_loader
+        }
+        self.experts_loader = experts_loader_dict[experts_loader]
 
         # setup goals
         print("debug1", tf.__version__)
@@ -168,11 +171,12 @@ class BatchMAMLPolopt(RLAlgorithm):
 
         # setup experts
         self.experts = []
+        import glob
         for expert_num_path in glob.glob('{}/*'.format(self.experts_dir)):
-            model_num_paths = glob.glob('{}/checkpoints/model*.pkl'.format(expert_num_path)
-            get_model_num = int(model_num_path.split('/')[-1].split('model')[-1].split('.pkl')[0])
-            lastest_model_num = max(map(get_model_num, model_num_paths))
-            self.experts.append(self.expert_loader(
+            model_num_paths = glob.glob('{}/checkpoints/model*.pkl'.format(expert_num_path))
+            get_model_num = lambda model_num_path: int(model_num_path.split('/')[-1].split('model')[-1].split('.pkl')[0])
+            latest_model_num = max(map(get_model_num, model_num_paths))
+            self.experts.append(self.experts_loader(
                 '{}/checkpoints/model{}.pkl'.format(expert_num_path, latest_model_num)))
 
     def start_worker(self):
@@ -197,7 +201,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         for task_num in paths.keys():
             for path in paths[task_num]:
                 # should be expert log probs...
-                path['expert_actions'], _, _, _ = -self.experts[task_num].pd.neglogp(path['observations'])
+                path['expert_actions'] = self.experts[task_num].getLogProb(path['observations'], path['actions'])
         return paths
 
     def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
@@ -314,16 +318,17 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 logger.record_tabular("MetaItr", self.metaitr,front=True)
                            
                             if step == num_inner_updates-1:
-                                if itr not in self.testing_itrs:
-                                    print("debug, post update train std modifier")
-                                    self.policy.std_modifier = self.post_std_modifier_train*self.policy.std_modifier
-                                else:
+                                # this would mess with the kl_d...
+                                #if itr not in self.testing_itrs:
+                                #    print("debug, post update train std modifier")
+                                #    self.policy.std_modifier = self.post_std_modifier_train*self.policy.std_modifier
+                                if itr in self.testing_itrs:
                                     print("debug, post update test std modifier")
                                     self.policy.std_modifier = self.post_std_modifier_test*self.policy.std_modifier
-                                if (itr in self.testing_itrs or not self.use_maml_il or step<num_inner_updates-1) and step < num_inner_updates:
-                                    # do not update on last grad step, and do not update on second to last step when training MAMLIL
-                                    logger.log("Computing policy updates...")
-                                    self.policy.compute_updated_dists(samples=samples_data)
+                            if step < num_inner_updates:
+                                # do not update on last grad step, and do not update on second to last step when training MAMLIL
+                                logger.log("Computing policy updates...")
+                                self.policy.compute_updated_dists(samples=samples_data)
 
                         # optimize policy
                         logger.log("Optimizing policy...")
@@ -344,7 +349,8 @@ class BatchMAMLPolopt(RLAlgorithm):
                     logger.dump_tabular(with_prefix=False)
 
                     # plot
-                    self.plot(itr)
+                    if self.plot:
+                        self.plot_fn(itr)
 
         self.shutdown_worker()
 
@@ -374,7 +380,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         if self.plot:
             plotter.update_plot(self.policy, self.max_path_length)
 
-    def plot(self, itr):
+    def plot_fn(self, itr):
         # wtf is this shit
         # The rest is some example plotting code.
         # Plotting code is useful for visualizing trajectories across a few different tasks.

@@ -3,7 +3,7 @@ import numpy as np
 import rllab.misc.logger as logger
 from rllab.misc import ext
 from rllab.misc.overrides import overrides
-from sandbox.rocky.tf.algos.batch_maml_polopt import BatchMAMLPolopt
+from sandbox.rocky.tf.algos.batch_maml_kl_polopt import BatchMAMLPolopt
 from sandbox.rocky.tf.misc import tensor_utils
 from sandbox.rocky.tf.optimizers.penalty_lbfgs_optimizer import PenaltyLbfgsOptimizer
 from sandbox.rocky.tf.optimizers.quad_dist_expert_optimizer import QuadDistExpertOptimizer
@@ -55,7 +55,6 @@ class MAMLIL(BatchMAMLPolopt):
             self.extra_input_dim = 0
 
         super(MAMLIL, self).__init__(optimizer=optimizer, beta_steps=beta_steps, use_maml_il=True, metalearn_baseline=metalearn_baseline, **kwargs)
-
 
     def make_vars(self, stepnum='0'):
         # lists over the meta_batch_size
@@ -277,12 +276,13 @@ class MAMLIL(BatchMAMLPolopt):
                      + 0.5 * np.log(2.0 * np.pi) * tf.to_float(tf.shape(actions)[-1]) \
                      + tf.reduce_sum(s, axis=-1)
 
-            def entropy(s):
-                return tf.reduce_sum(self.logstd + .5 * np.log(2.0 * np.pi * np.e), axis=-1)
+            logp = -sym_neglogp(m, s, action_vars[i])
+            stop_grad_logp = tf.stop_gradient(tf.identity(logp))
 
+            # TODO: reduce variance by doing "reward to go" for each timestep
+            # TODO: ignore/weight entropy term
             outer_surr_obj = tf.reduce_mean(
-                - tf.reduce_sum(a_star, axis=-1) * - tf.reduce_sum(sym_neglogp(m, s, action_vars[i]), axis=-1) 
-                - entropy(s)
+                (tf.reduce_sum(stop_grad_logp - a_star, axis=-1)) * tf.reduce_sum(logp, axis=-1)
             )
             outer_surr_objs.append(outer_surr_obj)
 
@@ -346,10 +346,7 @@ class MAMLIL(BatchMAMLPolopt):
             correction_term=corr_term
         )
 
-
-
         return dict()
-
 
 #######################################
     @overrides

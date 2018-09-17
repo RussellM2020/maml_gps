@@ -86,7 +86,12 @@ def set_seed(seed):
 
 
 def _worker_set_policy_params(G, params, scope=None):
+
+
+   
+
     G = _get_scoped_G(G, scope)
+
     G.policy.set_param_values(params)
 
 def _worker_set_env_params(G,params,scope=None):
@@ -115,7 +120,11 @@ def sample_paths(
     reached
     :param max_path_length: horizon / maximum length of a single trajectory
     :return: a list of collected paths
+
+
     """
+   
+
     if multi_task:
         assert len(policy_params) == singleton_pool.n_parallel
         all_params = [(params, scope) for params in policy_params]

@@ -52,8 +52,8 @@ extra_input = None
 extra_input_dim = None
 goals_suffixes = [""]
 
-fast_batch_size_list = [3] # [20,60]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
-meta_batch_size_list = [3] # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
+fast_batch_size_list = [20] # [20,60]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
+meta_batch_size_list = [20] # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
 max_path_length = 150
 num_grad_updates = 1
 meta_step_size = 0.01

@@ -250,6 +250,7 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
         # pull new param vals out of tensorflow, so gradient computation only done once ## first is the vars, second the values
         # these are the updated values of the params after the gradient step
         self.all_param_vals = sess.run(self.all_fast_params_tensor, feed_dict=dict(list(zip(self.input_list_for_grad, inputs))))
+       
 
         # print("debug58", type(self.all_param_vals))
 

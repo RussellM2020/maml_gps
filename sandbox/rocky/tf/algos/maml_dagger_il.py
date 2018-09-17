@@ -3,7 +3,7 @@ import numpy as np
 import rllab.misc.logger as logger
 from rllab.misc import ext
 from rllab.misc.overrides import overrides
-from sandbox.rocky.tf.algos.batch_maml_polopt import BatchMAMLPolopt
+from sandbox.rocky.tf.algos.batch_maml_dagger_polopt import BatchMAMLPolopt
 from sandbox.rocky.tf.misc import tensor_utils
 from sandbox.rocky.tf.optimizers.penalty_lbfgs_optimizer import PenaltyLbfgsOptimizer
 from sandbox.rocky.tf.optimizers.quad_dist_expert_optimizer import QuadDistExpertOptimizer

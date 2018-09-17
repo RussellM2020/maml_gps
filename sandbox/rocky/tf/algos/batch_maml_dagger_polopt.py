@@ -23,6 +23,7 @@ from rllab.misc.tensor_utils import split_tensor_dict_list, stack_tensor_dict_li
 from rllab.sampler.utils import rollout, joblib_dump_safe
 from maml_examples.maml_experiment_vars import TESTING_ITRS, PLOT_ITRS, VIDEO_ITRS, BASELINE_TRAINING_ITRS
 from maml_examples import pusher_env
+from expert_policies.expert_loaders import dummy_expert_loader
 
 class BatchMAMLPolopt(RLAlgorithm):
     """
@@ -146,7 +147,10 @@ class BatchMAMLPolopt(RLAlgorithm):
         self.extra_input_dim = extra_input_dim
         self.debug_pusher=debug_pusher
         self.experts_dir = experts_dir
-        self.experts_loader = experts_loader
+        experts_loader_dict = {
+            'dummy_expert_loader': dummy_expert_loader
+        }
+        self.experts_loader = experts_loader_dict[experts_loader]
 
         # setup goals
         print("debug1", tf.__version__)
@@ -168,11 +172,12 @@ class BatchMAMLPolopt(RLAlgorithm):
 
         # setup experts
         self.experts = []
+        import glob
         for expert_num_path in glob.glob('{}/*'.format(self.experts_dir)):
-            model_num_paths = glob.glob('{}/checkpoints/model*.pkl'.format(expert_num_path)
-            get_model_num = int(model_num_path.split('/')[-1].split('model')[-1].split('.pkl')[0])
-            lastest_model_num = max(map(get_model_num, model_num_paths))
-            self.experts.append(self.expert_loader(
+            model_num_paths = glob.glob('{}/checkpoints/model*.pkl'.format(expert_num_path))
+            get_model_num = lambda model_num_path: int(model_num_path.split('/')[-1].split('model')[-1].split('.pkl')[0])
+            latest_model_num = max(map(get_model_num, model_num_paths))
+            self.experts.append(self.experts_loader(
                 '{}/checkpoints/model{}.pkl'.format(expert_num_path, latest_model_num)))
 
     def start_worker(self):
@@ -196,7 +201,7 @@ class BatchMAMLPolopt(RLAlgorithm):
     def query_expert(self, itr, paths, log_prefix=''):
         for task_num in paths.keys():
             for path in paths[task_num]:
-                path['expert_actions'], _, _, _ = self.experts[task_num].detstep(path['observations'])
+                path['expert_actions'] = self.experts[task_num].detstep(path['observations'])
         return paths
 
     def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
@@ -239,13 +244,14 @@ class BatchMAMLPolopt(RLAlgorithm):
                     self.beta_steps = min(self.beta_steps, self.beta_curve[min(itr,len(self.beta_curve)-1)])
                     beta_steps_range = range(self.beta_steps) if itr not in self.testing_itrs else range(self.test_goals_mult)
                     beta0_step0_paths = None
+                    # this is gonna be 1 always...
                     num_inner_updates = self.num_grad_updates_for_testing if itr in self.testing_itrs else self.num_grad_updates
                     # outer loop
                     for beta_step in beta_steps_range:
                         all_samples_data_for_betastep = []
                         print("debug, pre-update std modifier")
                         self.policy.std_modifier = self.pre_std_modifier
-                        self.policy.switch_to_init_dist()  # Switch to pre-update policy
+                        self.policy.switch_to_init_dist()  # switch to pre-update policy
                         if itr in self.testing_itrs:
                             env = self.env
                             while 'sample_goals' not in dir(env):
@@ -279,7 +285,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 elif step == num_inner_updates:
                                     print("debug12.2, query expert for on-policy sampled traj")
                                     paths = self.obtain_samples(itr=itr, reset_args=self.goals_to_use_dict[itr],
-                                                                    log_prefix=str(beta_step) + "_" + str(step), preupdate=False)
+                                        log_prefix=str(beta_step)+"_"+str(step), preupdate=False) #preupdate=True
                                     paths = self.query_expert(itr=itr, paths=deepcopy(paths), log_prefix=str(beta_step)+"_"+str(step))
 
                             # process samples
@@ -315,14 +321,14 @@ class BatchMAMLPolopt(RLAlgorithm):
                             if step == num_inner_updates-1:
                                 if itr not in self.testing_itrs:
                                     print("debug, post update train std modifier")
+                                    # OK for dagger, DONT USE for KL
                                     self.policy.std_modifier = self.post_std_modifier_train*self.policy.std_modifier
                                 else:
                                     print("debug, post update test std modifier")
                                     self.policy.std_modifier = self.post_std_modifier_test*self.policy.std_modifier
-                                if (itr in self.testing_itrs or not self.use_maml_il or step<num_inner_updates-1) and step < num_inner_updates:
-                                    # do not update on last grad step, and do not update on second to last step when training MAMLIL
-                                    logger.log("Computing policy updates...")
-                                    self.policy.compute_updated_dists(samples=samples_data)
+                            if step < num_inner_updates: #and itr in self.testing_itrs:
+                                logger.log("Computing policy updates...")
+                                self.policy.compute_updated_dists(samples=samples_data)
 
                         # optimize policy
                         logger.log("Optimizing policy...")
@@ -343,7 +349,8 @@ class BatchMAMLPolopt(RLAlgorithm):
                     logger.dump_tabular(with_prefix=False)
 
                     # plot
-                    self.plot(itr)
+                    if self.plot:
+                        self.plot_fn(itr)
 
         self.shutdown_worker()
 
@@ -373,7 +380,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         if self.plot:
             plotter.update_plot(self.policy, self.max_path_length)
 
-    def plot(self, itr):
+    def plot_fn(self, itr):
         # wtf is this shit
         # The rest is some example plotting code.
         # Plotting code is useful for visualizing trajectories across a few different tasks.

@@ -42,7 +42,7 @@ class BatchMAMLPolopt(RLAlgorithm):
             batch_size=100,
             max_path_length=500,
             meta_batch_size=100,
-            taskPoolSize = 100,
+            taskPoolSize = 20,
             num_grad_updates=1,
             num_grad_updates_for_testing=1,
             discount=0.99,
@@ -117,6 +117,7 @@ class BatchMAMLPolopt(RLAlgorithm):
        
         # batch_size is the number of trajectories for one fast grad update.
         # self.batch_size is the number of total transitions to collect.
+        self.numTrajs_perTask = batch_size
         self.batch_size = batch_size * max_path_length * meta_batch_size
         self.max_path_length = max_path_length
         self.discount = discount
@@ -167,19 +168,23 @@ class BatchMAMLPolopt(RLAlgorithm):
                 assert goals_pool_to_load is None, "expert_trajs already comes with its own goals, please disable goals_pool_to_load"
                 goals_pool = joblib.load(self.expert_trajs_dir+"goals_pool.pkl")
                 self.goals_pool = goals_pool['goals_pool']
-                if 'idxs_dict' in goals_pool:
-                    self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
+                self.numTasks  = len(self.goals_pool)
+                # if 'idxs_dict' in goals_pool:
+                #     self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
 
-                else:
-                    self.goals_idxs_for_itr_dict = {}
-                    numTasks = len(self.goals_pool)
-                    assert self.meta_batch_size <= numTasks
-                    for i in range(self.n_itr):
-                        self.goals_idxs_for_itr_dict[i] = np.random.choice(np.arange(numTasks), self.meta_batch_size)
+                #else:
+                self.goals_idxs_for_itr_dict = {}
+                
+                assert self.meta_batch_size <= self.taskPoolSize
+                for i in range(self.n_itr):
+                    self.goals_idxs_for_itr_dict[i] = np.random.choice(np.arange(self.taskPoolSize), self.meta_batch_size, replace = False)
+                
+
                 if "demos_path" in goals_pool.keys():
                     self.demos_path = goals_pool["demos_path"]
                 else:
                     self.demos_path = expert_trajs_dir
+
                 print("successfully extracted goals pool", self.goals_idxs_for_itr_dict.keys(), self.goals_idxs_for_itr_dict[0], self.goals_idxs_for_itr_dict[1])
             elif goals_pool_to_load is not None:
                 logger.log("Loading goals pool from %s ..." % goals_pool_to_load)
@@ -265,12 +270,14 @@ class BatchMAMLPolopt(RLAlgorithm):
         # This obtains samples using self.policy, and calling policy.get_actions(obses)
         # return_dict specifies how the samples should be returned (dict separates samples
         # by task)
-        paths = self.sampler.obtain_samples(itr=itr, reset_args=reset_args, return_dict=True, log_prefix=log_prefix, extra_input=self.extra_input, extra_input_dim=(self.extra_input_dim if self.extra_input is not None else 0), preupdate=preupdate)
+        
+        paths = self.sampler.obtain_samples(itr=itr, reset_args=reset_args, return_dict=True, log_prefix=log_prefix, 
+            extra_input=self.extra_input, extra_input_dim=(self.extra_input_dim if self.extra_input is not None else 0), preupdate=preupdate,  numTrajs_perTask = self.numTrajs_perTask)
         assert type(paths) == dict
         return paths
 
     def obtain_agent_info_offpolicy(self, itr, expert_trajs_dir=None, offpol_trajs=None, treat_as_expert_traj=False, log_prefix=''):
-        assert expert_trajs_dir is None, "deprecated"
+        #assert expert_trajs_dir is None, "deprecated"
         start = time.time()
         if offpol_trajs is None:
             assert expert_trajs_dir is not None, "neither offpol_trajs nor expert_trajs_dir is provided"
@@ -366,9 +373,9 @@ class BatchMAMLPolopt(RLAlgorithm):
 
             for itr in range(self.start_itr, self.n_itr):
 
-                taskBatch = np.random.choice(np.arange(self.taskPoolSize), self.meta_batch_size)
-                expert_trajs_for_meta_itr = {i: all_expert_trajs[t] for i,t in enumerate(taskBatch)}
-
+                expert_trajs_for_meta_itr = {t : all_expert_trajs[taskidx] for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr])}
+                #expert_trajs_for_meta_itr = {i: all_expert_trajs[t] for i,t in enumerate( self.goals_idxs_for_itr_dict[itr])}
+               
                 itr_start_time = time.time()
                 np.random.seed(self.seed+itr)
                 tf.set_random_seed(self.seed+itr)
@@ -412,12 +419,17 @@ class BatchMAMLPolopt(RLAlgorithm):
                                                                     log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=True)
                                     paths = store_agent_infos(paths)  # agent_infos_orig is populated here
                                 elif step == num_inner_updates:
+
+
+                                    
                                     print('debug12.0.1, test-time sampling step=', step) #, goals_to_use)
                                     paths = self.obtain_samples(itr=itr, reset_args=goals_to_use,
                                                                     log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=False)
                                     all_postupdate_paths.extend(paths.values())
                             elif self.expert_trajs_dir is None or (beta_step == 0 and step < num_inner_updates):
                                 print("debug12.1, regular sampling") #, self.goals_to_use_dict[itr])
+
+
                                 paths = self.obtain_samples(itr=itr, reset_args=self.goals_to_use_dict[itr], log_prefix=str(beta_step)+"_"+str(step),preupdate=True)
                                 if beta_step == 0 and step == 0:
                                     paths = store_agent_infos(paths)  # agent_infos_orig is populated here
@@ -426,6 +438,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 print("debug12.2, expert traj")
                                 paths = self.obtain_agent_info_offpolicy(itr=itr,
                                                                          offpol_trajs=expert_trajs_for_meta_itr,
+                                                                         
                                                                          treat_as_expert_traj=True,
                                                                          log_prefix=str(beta_step)+"_"+str(step))
                             else:
@@ -470,6 +483,8 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 if (itr in self.testing_itrs or not self.use_maml_il or step<num_inner_updates-1) and step < num_inner_updates:
                                     # do not update on last grad step, and do not update on second to last step when training MAMLIL
                                     logger.log("Computing policy updates...")
+
+                                   
                                     self.policy.compute_updated_dists(samples=samples_data)
 
                         logger.log("Optimizing policy...")
@@ -490,49 +505,59 @@ class BatchMAMLPolopt(RLAlgorithm):
                     logger.dump_tabular(with_prefix=False)
 
                     self.plotTrajs(itr, all_paths_for_plotting)
-                    self.shutdown_worker()
+        self.shutdown_worker()
 
     
 
 
     def load_expert_trajs(self):
         all_expert_trajs = {}
-        taskList = np.random.choice(np.arange(len(self.goals_pool)) , self.taskPoolSize )
-        for t, taskidx in enumerate(taskList):
-            demos_path = self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl"
-            # logger.log("loading demos path %s" % demos_path)
-            demos = joblib.load(demos_path)
-            # conversion code from Chelsea's format
-            if type(demos) is dict and 'demoU' in demos.keys():
-                converted_demos = []
-                for i,demoU in enumerate(demos['demoU']):
-                    if int(demos['xml'][-5]) % 2 == 0 and not self.debug_pusher:
-                        #flips the object and the distractor
-                        demoX = pusher_env.shuffle_demo(demos['demoX'][i])
-                        if i ==0:
-                            print("using demo xml and flipping", demos['xml'])
-                    else:
-                        demoX = demos['demoX'][i]
-                        if i==0:
-                            print("using demo xml", demos['xml'])
-                    if self.extra_input is not None:
-                        extra = np.zeros((np.shape(demoX)[0], self.extra_input_dim))
-                        demoX = np.concatenate((demoX, extra), -1)
+        
+        for taskidx in range(self.numTasks):
 
-                    converted_demos.append({'observations': demoX, 'actions': demoU})
-                # print("debug, using xml for demos", demos['xml'])
-                all_expert_trajs[t] = converted_demos
-            else:
-                if self.extra_input is not None:
-                    demos_plus_ei=[]
-                    for demo in demos:
-                        extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
-                        obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
-                        demo['observations'] = obs_plus_ei
-                        demos_plus_ei.append(demo)
-                    all_expert_trajs[t] = demos_plus_ei
-                else:
-                    all_expert_trajs[t] = demos
+            all_expert_trajs[taskidx] =  joblib.load(self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl")
+
+        return all_expert_trajs
+
+            # offpol_trajs = {t : joblib.load(expert_trajs_dir+str(taskidx)+self.expert_trajs_suffix+".pkl") for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr])}
+            # else:
+            #     offpol_trajs = joblib.load(expert_trajs_dir+str(itr)+self.expert_trajs_suffix+".pkl")                
+
+            # demos_path = self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl"
+            # # logger.log("loading demos path %s" % demos_path)
+            # demos = joblib.load(demos_path)
+            # # conversion code from Chelsea's format
+            # if type(demos) is dict and 'demoU' in demos.keys():
+            #     converted_demos = []
+            #     for i,demoU in enumerate(demos['demoU']):
+            #         if int(demos['xml'][-5]) % 2 == 0 and not self.debug_pusher:
+            #             #flips the object and the distractor
+            #             demoX = pusher_env.shuffle_demo(demos['demoX'][i])
+            #             if i ==0:
+            #                 print("using demo xml and flipping", demos['xml'])
+            #         else:
+            #             demoX = demos['demoX'][i]
+            #             if i==0:
+            #                 print("using demo xml", demos['xml'])
+            #         if self.extra_input is not None:
+            #             extra = np.zeros((np.shape(demoX)[0], self.extra_input_dim))
+            #             demoX = np.concatenate((demoX, extra), -1)
+
+            #         converted_demos.append({'observations': demoX, 'actions': demoU})
+            #     # print("debug, using xml for demos", demos['xml'])
+            #     all_expert_trajs[t] = converted_demos
+            # else:
+            #     if self.extra_input is not None:
+            #         demos_plus_ei=[]
+            #         for demo in demos:
+            #             extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
+            #             obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
+            #             demo['observations'] = obs_plus_ei
+            #             demos_plus_ei.append(demo)
+            #         all_expert_trajs[t] = demos_plus_ei
+            #     else:
+                 
+            #print('Loaded Task '+str(taskidx))
 
 
         #all_expert_trajs = {t: all_expert_trajs[t] for t in range(self.meta_batch_size)}
