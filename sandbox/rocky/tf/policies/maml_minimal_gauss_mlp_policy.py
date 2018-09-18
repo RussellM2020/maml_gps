@@ -46,7 +46,7 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             stop_grad=False,
             extra_input_dim=0,
             num_tasks = 5,
-            updateMode = 'parallel',
+            updateMode = 'vec',
             # metalearn_baseline=False,
     ):
         """
@@ -332,9 +332,10 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
                 info, _ = self.dist_info_sym(obs_var=task_inp, state_info_vars=dict(), all_params=self.all_param_vals[i],
                         is_training=False)
                 
-                self.actionFunc_perTask_curr.append(tensor_utils.compile_function( inputs=[task_inp], outputs=[info['mean'], info['log_std']]))
+                self.actionFunc_perTask_curr.append(tensor_utils.compile_function( inputs= [self.inputPlaceholders[i]], outputs=[info['mean'], info['log_std']]))
 
         else:
+            assert self.updateMode == 'vec'
 
             outputs = []
             inputs = tf.split(self.input_tensor, num_tasks, 0)
@@ -631,8 +632,8 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
                 self._cached_assign_placeholders[param] = assign_placeholder
             ops.append(self._cached_assign_ops[param])
             feed_dict[self._cached_assign_placeholders[param]] = value.astype(dtype)
-            if debug:
-                print("setting value of %s" % param.name)
+            # if debug:
+            #print("setting value of %s" % param.name) 
         tf.get_default_session().run(ops, feed_dict=feed_dict)
 
     def flat_to_params(self, flattened_params, all_params=False, **tags):

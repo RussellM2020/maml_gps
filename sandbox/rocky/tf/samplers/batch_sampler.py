@@ -74,14 +74,9 @@ class BatchSampler(BaseSampler):
     
         for i in range(self.n_envs):
 
-            if preupdate:
-                policy_params = cur_policy_params[i]
-            else:
-            
-                policy_params = flatten_tensors(self.algo.policy.all_param_vals[i].values())  
 
-
-
+            policy_params = cur_policy_params[i]
+               
             paths_i = parallel_sampler.sample_paths(
                 policy_params=policy_params,
                 

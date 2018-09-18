@@ -19,6 +19,8 @@ import random as rd
 
 taskPoolSize = 1000
 mode = 'local'
+updateMode = 'parallel'
+#other option is updateMode = vec
 beta_adam_steps_list = [(1,3)] #,(1,100)]  # , ## maybe try 1 and 10 to compare, we know that 1 is only slightly worse than 5
 
 fast_learning_rates = [1.0]  #1.0 seems to work best
@@ -72,7 +74,8 @@ for seed in seeds:
                                         hidden_nonlinearity=tf.nn.relu,
                                         hidden_sizes=(100, 100),
                                         std_modifier=pre_std_modifier,
-                                        num_tasks = meta_batch_size
+                                        num_tasks = meta_batch_size,
+                                        updateMode = updateMode
                                     )
                                     if bas == 'zero':
                                         baseline = ZeroBaseline(env_spec=env.spec)
@@ -91,7 +94,7 @@ for seed in seeds:
                                         meta_batch_size=meta_batch_size, ## number of tasks sampled for beta grad update
                                         taskPoolSize = taskPoolSize,
                                         num_grad_updates=num_grad_updates, ## number of alpha grad updates per beta update
-                                        n_itr=100, #100
+                                        n_itr=12, #100
                                         use_maml=use_maml,
                                         use_pooled_goals=True,
                                         step_size=meta_step_size,
@@ -104,14 +107,15 @@ for seed in seeds:
                                         post_std_modifier_train=post_std_modifier_train,
                                         post_std_modifier_test=post_std_modifier_test,
                                         expert_trajs_dir=EXPERT_TRAJ_LOCATION_DICT["."+mode],
+                                        updateMode = updateMode
                                     )
 
                                     run_experiment_lite(
                                         algo.train(),
-                                        n_parallel=12,
+                                        n_parallel=1,
                                         snapshot_mode="all",
                                         python_command='python3',
-                                        seed=1,
+                                        seed=10,
                                         exp_prefix='pointMass_parallel',
                                         exp_name=str(seed)
                                                  # +str(int(use_maml))

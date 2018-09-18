@@ -106,8 +106,7 @@ def _worker_set_env_params(G,params,scope=None):
 
 def _worker_collect_one_path(G, max_path_length, scope=None, reset_arg=None, taskIdx = 0):
     G = _get_scoped_G(G, scope)
-   
-
+    
     path = rollout(G.env, G.policy, max_path_length, reset_arg=reset_arg, taskIdx = taskIdx)
     return path, len(path["rewards"])
 

@@ -80,6 +80,7 @@ class BatchMAMLPolopt(RLAlgorithm):
             extra_input_dim=0,
             seed=1,
             debug_pusher=False,
+            updateMode = 'vec',
             **kwargs
     ):
         """
@@ -133,6 +134,8 @@ class BatchMAMLPolopt(RLAlgorithm):
         self.store_paths = store_paths
         self.whole_paths = whole_paths
         self.fixed_horizon = fixed_horizon
+
+        self.updateMode = updateMode
 
         self.taskPoolSize = taskPoolSize
         self.meta_batch_size = meta_batch_size  # number of tasks
@@ -438,8 +441,10 @@ class BatchMAMLPolopt(RLAlgorithm):
 
                                 elif step == num_inner_updates:
                                     print('debug12.0.1, test-time sampling step=', step) #, goals_to_use)
+
+                                    
                                     paths = self.obtain_samples(itr=itr, reset_args=goals_to_use,
-                                                                    log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=False, mode = 'parallel')
+                                                                    log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=False, mode = self.updateMode)
                                     all_postupdate_paths.extend(paths.values())
 
                             elif self.expert_trajs_dir is None or (beta_step == 0 and step < num_inner_updates):
