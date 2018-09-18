@@ -72,6 +72,7 @@ for seed in seeds:
                                         hidden_nonlinearity=tf.nn.relu,
                                         hidden_sizes=(100, 100),
                                         std_modifier=pre_std_modifier,
+                                        num_tasks = meta_batch_size
                                     )
                                     if bas == 'zero':
                                         baseline = ZeroBaseline(env_spec=env.spec)
@@ -107,7 +108,7 @@ for seed in seeds:
 
                                     run_experiment_lite(
                                         algo.train(),
-                                        n_parallel=1,
+                                        n_parallel=12,
                                         snapshot_mode="all",
                                         python_command='python3',
                                         seed=1,

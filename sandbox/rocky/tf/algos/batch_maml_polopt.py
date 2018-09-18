@@ -355,7 +355,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         return offpol_trajs
 
     def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
-        return self.vec_sampler.process_samples(itr, paths, prefix=prefix, log=log, fast_process=fast_process, testitr=testitr, metalearn_baseline=metalearn_baseline)
+        return self.parallel_sampler.process_samples(itr, paths, prefix=prefix, log=log, fast_process=fast_process, testitr=testitr, metalearn_baseline=metalearn_baseline)
         #vec sampler and parallel sampler both call process samples in base
 
     def train(self):
@@ -411,7 +411,10 @@ class BatchMAMLPolopt(RLAlgorithm):
                         all_samples_data_for_betastep = []
                         print("debug, pre-update std modifier")
                         self.policy.std_modifier = self.pre_std_modifier
+                        
+                        self.policy.switch_to_init_dist
                         self.policy.perTask_switch_to_init_dist()  # Switch to pre-update policy
+                        
                         if itr in self.testing_itrs:
                             env = self.env
                            
@@ -421,7 +424,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                             print("Debug11", goals_to_use)
                             # else:
                             #     goals_to_use = env.sample_goals(self.meta_batch_size)
-                            self.goals_to_use_dict[itr] = goals_to_use if beta_step==0 else np.concatenate((self.goals_to_use_dict[itr],goals_to_use))
+                            #self.goals_to_use_dict[itr] = goals_to_use if beta_step==0 else np.concatenate((self.goals_to_use_dict[itr],goals_to_use))
                         for step in range(num_inner_updates+1): # inner loop
                             logger.log('** Betastep %s ** Step %s **' % (str(beta_step), str(step)))
                             logger.log("Obtaining samples...")

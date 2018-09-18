@@ -50,41 +50,55 @@ class BatchSampler(BaseSampler):
         if type(reset_args) != list and type(reset_args)!=np.ndarray:
             reset_args = [reset_args]*self.n_envs
 
-        if not preupdate:
-            assert  hasattr(self.algo.policy, 'all_param_vals')
-            assert  self.algo.policy.all_param_vals is not None
-            cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
+        # if not preupdate:
+        #     assert  hasattr(self.algo.policy, 'all_param_vals')
+        #     assert  self.algo.policy.all_param_vals is not None
+        #     cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
+
+
             #all_param_vals have the updated values of the parameters, set in compute_updated_dist
             
-        else:
-            if hasattr(self.algo.policy, 'all_param_vals'): #TODO: RK, need to make this less hacky and still work with non-maml policies
-                if self.algo.policy.all_param_vals:
-                    cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
-                else:
-                    cur_policy_params = [cur_policy_params]*self.n_envs
-            else:
-                cur_policy_params = [cur_policy_params]*self.n_envs
+      
+        # if hasattr(self.algo.policy, 'all_param_vals'): #TODO: RK, need to make this less hacky and still work with non-maml policies
+        #     if self.algo.policy.all_param_vals:
+        #         cur_policy_params = [flatten_tensors(x.values()) for x in self.algo.policy.all_param_vals]
+        #     else:
+        #         cur_policy_params = [cur_policy_params]*self.n_envs
+        # else:
+        cur_policy_params = [cur_policy_params]*self.n_envs
 
         # do tasks sequentially and parallelize within rollouts per task.
         paths = {}
-        import ipdb
-        ipdb.set_trace()
+        #if preupdate:
         
-
+    
         for i in range(self.n_envs):
+
+            if preupdate:
+                policy_params = cur_policy_params[i]
+            else:
+            
+                policy_params = flatten_tensors(self.algo.policy.all_param_vals[i].values())  
+
+
+
             paths_i = parallel_sampler.sample_paths(
-                policy_params=cur_policy_params[i],
+                policy_params=policy_params,
+                
                 env_params=cur_env_params,
                 max_samples=self.algo.batch_size / self.n_envs,
                 max_path_length=self.algo.max_path_length,
                 scope=self.algo.scope,
                 reset_arg=reset_args[i],
+                taskIdx = i,
                 show_prog_bar=False,
+                preupdate = preupdate,
             )
             if numTrajs_perTask !=None:
                 paths[i] = paths_i[:numTrajs_perTask]
             else:
                 paths[i] = paths_i
+
 
         total_time = time.time() - start
         logger.record_tabular(log_prefix+"TotalExecTime", total_time)
@@ -93,7 +107,7 @@ class BatchSampler(BaseSampler):
             flatten_list = lambda l: [item for sublist in l for item in sublist]
             paths = flatten_list(paths.values())
 
-        self.algo.policy.set_param_values(init_policy_params)
+        #self.algo.policy.set_param_values(init_policy_params)
 
         # currently don't support not whole paths (if desired, add code to truncate paths)
         assert self.algo.whole_paths

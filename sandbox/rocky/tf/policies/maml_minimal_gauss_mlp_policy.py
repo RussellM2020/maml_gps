@@ -45,6 +45,8 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             grad_step_size=1.0,
             stop_grad=False,
             extra_input_dim=0,
+            num_tasks = 5,
+            updateMode = 'parallel',
             # metalearn_baseline=False,
     ):
         """
@@ -159,6 +161,61 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             self._cur_f_dist = self._init_f_dist
 
 
+            self.updateMode = updateMode
+
+            self.num_tasks = num_tasks
+            self.inputPlaceholders = []
+            self.actionFunc_perTask_init = []
+            for i in range(self.num_tasks):
+                inputPh = tf.placeholder(tf.float32, shape=self.input_shape, name="task"+str(i)+'_input')
+                self.inputPlaceholders.append(inputPh)
+                self.actionFunc_perTask_init.append(self.set_init_actionFunc(inputPh))
+
+            self.actionFunc_perTask_curr = self.actionFunc_perTask_init
+
+
+
+
+    def set_init_actionFunc(self, inputPh):
+
+
+        dist_info_sym = self.dist_info_sym(inputPh, dict(), is_training=False)
+        mean_var = dist_info_sym["mean"]
+        log_std_var = dist_info_sym["log_std"]
+
+        return tensor_utils.compile_function(
+            inputs=[inputPh],
+            outputs=[mean_var, log_std_var],
+        )
+
+
+    def get_perTask_action(self, observation, taskIdx):
+
+       
+
+        flat_obs = self.observation_space.flatten(observation)
+     
+        mean, log_std = [x[0] for x in self.actionFunc_perTask_curr[taskIdx]([flat_obs])]
+        rnd = np.random.normal(size=np.shape(mean))
+        action = rnd * np.exp(log_std) + mean
+
+       
+        return action, dict(mean=mean, log_std=log_std)
+
+
+    def perTask_switch_to_init_dist(self):
+
+       
+
+        self.actionFunc_perTask_curr = self.actionFunc_perTask_init
+
+      
+        self.all_param_vals = None
+
+
+       
+
+
     @property
     def vectorized(self):
         return True
@@ -180,10 +237,18 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             outputs=[mean_var, log_std_var],
         )
 
+
+
+
+
+
     def compute_updated_dists(self, samples):
         """ Compute fast gradients once per iteration and pull them out of tensorflow for sampling with the post-update policy.
         With MAML_IL, this is only done during the testing iterations
+
         """
+        
+        
         start = time.time()
         num_tasks = len(samples)
         param_keys = self.all_params.keys()
@@ -249,31 +314,49 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
 
         # pull new param vals out of tensorflow, so gradient computation only done once ## first is the vars, second the values
         # these are the updated values of the params after the gradient step
+
+        
         self.all_param_vals = sess.run(self.all_fast_params_tensor, feed_dict=dict(list(zip(self.input_list_for_grad, inputs))))
-       
-
-        # print("debug58", type(self.all_param_vals))
-
-
+     
         if init_param_values is not None:
             self.assign_params(self.all_params, init_param_values)
 
-        outputs = []
-        inputs = tf.split(self.input_tensor, num_tasks, 0)
-        for i in range(num_tasks):
-            # TODO - use a placeholder to feed in the params, so that we don't have to recompile every time.
-            task_inp = inputs[i]
-            info, _ = self.dist_info_sym(obs_var=task_inp, state_info_vars=dict(), all_params=self.all_param_vals[i],
-                    is_training=False)
+       
 
-            outputs.append([info['mean'], info['log_std']])
+        if self.updateMode == 'parallel':
 
-        self._cur_f_dist = tensor_utils.compile_function(
-            inputs=[self.input_tensor],
-            outputs=outputs,
-        )
+            self.actionFunc_perTask_curr = []
+            for i in range(self.num_tasks):
+                # TODO - use a placeholder to feed in the params, so that we don't have to recompile every time.
+                task_inp = self.inputPlaceholders[i]
+                info, _ = self.dist_info_sym(obs_var=task_inp, state_info_vars=dict(), all_params=self.all_param_vals[i],
+                        is_training=False)
+                
+                self.actionFunc_perTask_curr.append(tensor_utils.compile_function( inputs=[task_inp], outputs=[info['mean'], info['log_std']]))
+
+        else:
+
+            outputs = []
+            inputs = tf.split(self.input_tensor, num_tasks, 0)
+
+            for i in range(self.num_tasks):
+                # TODO - use a placeholder to feed in the params, so that we don't have to recompile every time.
+                task_inp = inputs[i]
+                info, _ = self.dist_info_sym(obs_var=task_inp, state_info_vars=dict(), all_params=self.all_param_vals[i],
+                        is_training=False)
+
+              
+                outputs.append([info['mean'], info['log_std']])
+
+            self._cur_f_dist = tensor_utils.compile_function(
+                inputs=[self.input_tensor],
+                outputs=outputs,
+            )
+
+
+
         total_time = time.time() - start
-      #  logger.record_tabular("ComputeUpdatedDistTime", total_time)
+ 
 
     def get_variable_values(self, tensor_dict):
         sess = tf.get_default_session()
@@ -292,6 +375,7 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
         feed_dict = {self.assign_placeholders[key]:param_values[key] for key in tensor_dict.keys()}
         sess = tf.get_default_session()
         sess.run(self.assign_ops, feed_dict)
+
 
 
     def switch_to_init_dist(self):
