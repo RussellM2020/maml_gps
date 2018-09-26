@@ -6,6 +6,7 @@ import rllab.misc.logger as logger
 from rllab.algos import util
 from rllab.misc import special
 from rllab.misc import tensor_utils
+from copy import deepcopy
 from maml_examples.maml_experiment_vars import BASELINE_TRAINING_ITRS
 
 
@@ -50,7 +51,7 @@ class BaseSampler(Sampler):
         self.memory["AverageReturnLastTest"] = 0.0
         self.memory["AverageReturnBestTest"] = 0.0
 
-    def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
+    def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False , isExpertTraj = False):
         baselines = []
         returns = []
         if testitr:
@@ -61,7 +62,8 @@ class BaseSampler(Sampler):
                 path["returns"] = special.discount_cumsum(path["rewards"], self.algo.discount)
         if not fast_process and not metalearn_baseline:
             if log:
-                logger.log("fitting baseline...")
+                pass
+                #logger.log("fitting baseline...")
             if hasattr(self.algo.baseline, 'fit_with_samples'):
                 self.algo.baseline.fit_with_samples(paths, samples_data)  # TODO: doesn't seem like this is ever used
             else:
@@ -73,7 +75,8 @@ class BaseSampler(Sampler):
                 # print("debug22 returns                ",paths[0]['returns'][0:2], "...",paths[0]['returns'][-3:-1])
                 # print("debug24 baseline after  fitting",self.algo.baseline.predict(paths[0])[0:2], "...", self.algo.baseline.predict(paths[0])[-3:-1])
             if log:
-                logger.log("fitted")
+                pass
+                #logger.log("fitted")
 
             if 'switch_to_init_dist' in dir(self.algo.baseline):
                 self.algo.baseline.switch_to_init_dist()
@@ -103,8 +106,10 @@ class BaseSampler(Sampler):
             if not fast_process:
                 returns.append(path["returns"])
             if "expert_actions" not in path.keys():
-                if "expert_actions" in path["env_infos"].keys():
+                if ("expert_actions" in path["env_infos"].keys()):
                     path["expert_actions"] = path["env_infos"]["expert_actions"]
+              
+    
                 else:
                     # assert False, "you shouldn't need expert_actions"
                     path["expert_actions"] = np.array([[None]*len(path['actions'][0])] * len(path['actions']))

@@ -113,7 +113,7 @@ class PenaltyLbfgsOptimizer(Serializable):
         opt_params = cur_params
 
         for penalty_itr in range(self._max_penalty_itr):
-            logger.log('trying penalty=%.3f...' % try_penalty)
+            #logger.log('trying penalty=%.3f...' % try_penalty)
 
             itr_opt_params, _, _ = scipy.optimize.fmin_l_bfgs_b(
                 func=gen_f_opt(try_penalty), x0=cur_params,
@@ -122,8 +122,8 @@ class PenaltyLbfgsOptimizer(Serializable):
 
             _, try_loss, try_constraint_val = f_penalized_loss(*(inputs + (try_penalty,)))
 
-            logger.log('penalty %f => loss %f, %s %f' %
-                       (try_penalty, try_loss, self._constraint_name, try_constraint_val))
+            #logger.log('penalty %f => loss %f, %s %f' %
+                       #(try_penalty, try_loss, self._constraint_name, try_constraint_val))
 
             # Either constraint satisfied, or we are at the last iteration already and no alternative parameter
             # satisfies the constraint

@@ -87,94 +87,95 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             raise NotImplementedError('removing this since it didnt work well')
 
         # create network
-        if mean_network is None:
-            self.all_params = self.create_MLP(  # TODO: this should not be a method of the policy! --> helper
-                name="mean_network",
-                output_dim=self.action_dim,
-                hidden_sizes=hidden_sizes,
-            )
-            self.input_tensor, _ = self.forward_MLP('mean_network', self.all_params,
-                reuse=None # Need to run this for batch norm
-            )
-            forward_mean = lambda x, params, is_train: self.forward_MLP('mean_network', all_params=params,
-                input_tensor=x, is_training=is_train)[1]
-        else:
-            raise NotImplementedError('Not supported.')
+        with tf.variable_scope(name):
+            if mean_network is None:
+                self.all_params = self.create_MLP(  # TODO: this should not be a method of the policy! --> helper
+                    name="mean_network",
+                    output_dim=self.action_dim,
+                    hidden_sizes=hidden_sizes,
+                )
+                self.input_tensor, _ = self.forward_MLP('mean_network', self.all_params,
+                    reuse=None # Need to run this for batch norm
+                )
+                forward_mean = lambda x, params, is_train: self.forward_MLP('mean_network', all_params=params,
+                    input_tensor=x, is_training=is_train)[1]
+            else:
+                raise NotImplementedError('Not supported.')
 
-        if std_network is not None:
-            raise NotImplementedError('Not supported.')
-        else:
-            if adaptive_std:
+            if std_network is not None:
                 raise NotImplementedError('Not supported.')
             else:
+                if adaptive_std:
+                    raise NotImplementedError('Not supported.')
+                else:
+                    if std_parametrization == 'exp':
+                        init_std_param = np.log(init_std)
+                    elif std_parametrization == 'softplus':
+                        init_std_param = np.log(np.exp(init_std) - 1)
+                    else:
+                        raise NotImplementedError
+                    self.all_params['std_param'] = make_param_layer(
+                        num_units=self.action_dim,
+                        param=tf.constant_initializer(init_std_param),
+                        name="mean_network/output_std_param",
+                        trainable=learn_std,
+                    )
+                    forward_std = lambda x, params: forward_param_layer(x, params['std_param'])
+                self.all_param_vals = None
+
+                # unify forward mean and forward std into a single function
+                self._forward = lambda obs, params, is_train: (
+                        forward_mean(obs, params, is_train), forward_std(obs, params))
+
+                self.std_parametrization = std_parametrization
+
                 if std_parametrization == 'exp':
-                    init_std_param = np.log(init_std)
+                    min_std_param = np.log(min_std)
+                    max_std_param = np.log(max_std)
                 elif std_parametrization == 'softplus':
-                    init_std_param = np.log(np.exp(init_std) - 1)
+                    min_std_param = np.log(np.exp(min_std) - 1)
+                    max_std_param = np.log(np.exp(max_std) - 1)
                 else:
                     raise NotImplementedError
-                self.all_params['std_param'] = make_param_layer(
-                    num_units=self.action_dim,
-                    param=tf.constant_initializer(init_std_param),
-                    name="mean_network/output_std_param",
-                    trainable=learn_std,
+
+                self.min_std_param = min_std_param  # TODO: change these to min_std_param_raw
+                self.max_std_param = max_std_param
+                self.std_modifier = np.float64(std_modifier)
+                #print("initializing max_std debug4", self.min_std_param, self.max_std_param)
+
+
+                self._dist = DiagonalGaussian(self.action_dim)
+
+                self._cached_params = {}
+
+                super(MAMLGaussianMLPPolicy, self).__init__(env_spec)
+
+                dist_info_sym = self.dist_info_sym(self.input_tensor, dict(), is_training=False)
+                mean_var = dist_info_sym["mean"]
+                log_std_var = dist_info_sym["log_std"]
+
+                # pre-update policy
+                self._init_f_dist = tensor_utils.compile_function(
+                    inputs=[self.input_tensor],
+                    outputs=[mean_var, log_std_var],
                 )
-                forward_std = lambda x, params: forward_param_layer(x, params['std_param'])
-            self.all_param_vals = None
-
-            # unify forward mean and forward std into a single function
-            self._forward = lambda obs, params, is_train: (
-                    forward_mean(obs, params, is_train), forward_std(obs, params))
-
-            self.std_parametrization = std_parametrization
-
-            if std_parametrization == 'exp':
-                min_std_param = np.log(min_std)
-                max_std_param = np.log(max_std)
-            elif std_parametrization == 'softplus':
-                min_std_param = np.log(np.exp(min_std) - 1)
-                max_std_param = np.log(np.exp(max_std) - 1)
-            else:
-                raise NotImplementedError
-
-            self.min_std_param = min_std_param  # TODO: change these to min_std_param_raw
-            self.max_std_param = max_std_param
-            self.std_modifier = np.float64(std_modifier)
-            #print("initializing max_std debug4", self.min_std_param, self.max_std_param)
+                self._cur_f_dist = self._init_f_dist
 
 
-            self._dist = DiagonalGaussian(self.action_dim)
-
-            self._cached_params = {}
-
-            super(MAMLGaussianMLPPolicy, self).__init__(env_spec)
-
-            dist_info_sym = self.dist_info_sym(self.input_tensor, dict(), is_training=False)
-            mean_var = dist_info_sym["mean"]
-            log_std_var = dist_info_sym["log_std"]
-
-            # pre-update policy
-            self._init_f_dist = tensor_utils.compile_function(
-                inputs=[self.input_tensor],
-                outputs=[mean_var, log_std_var],
-            )
-            self._cur_f_dist = self._init_f_dist
+                self.updateMode = updateMode
 
 
-            self.updateMode = updateMode
+                if num_tasks == None:
+                    raise AssertionError('num_tasks is None!!!')
+                self.num_tasks = num_tasks
+                self.inputPlaceholders = []
+                self.actionFunc_perTask_init = []
+                for i in range(self.num_tasks):
+                    inputPh = tf.placeholder(tf.float32, shape=self.input_shape, name="task"+str(i)+'_input')
+                    self.inputPlaceholders.append(inputPh)
+                    self.actionFunc_perTask_init.append(self.set_init_actionFunc(inputPh))
 
-
-            if num_tasks == None:
-                raise AssertionError('num_tasks is None!!!')
-            self.num_tasks = num_tasks
-            self.inputPlaceholders = []
-            self.actionFunc_perTask_init = []
-            for i in range(self.num_tasks):
-                inputPh = tf.placeholder(tf.float32, shape=self.input_shape, name="task"+str(i)+'_input')
-                self.inputPlaceholders.append(inputPh)
-                self.actionFunc_perTask_init.append(self.set_init_actionFunc(inputPh))
-
-            self.actionFunc_perTask_curr = self.actionFunc_perTask_init
+                self.actionFunc_perTask_curr = self.actionFunc_perTask_init
 
 
     def set_init_actionFunc(self, inputPh):
@@ -497,13 +498,13 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             params = tf.trainable_variables()
         else:
             params = tf.global_variables()
-        print("debug, all params", params)
+        # print("debug, all params", params)
         # RK: this is hacky, use when unpickling
         # params = [p for p in params if p.name.startswith('mean_network') or p.name.startswith('output_std_param')]
-        params = [p for p in params if p.name.startswith('mean_network')] # or p.name.startswith('output_std_param')]
+        params = [p for p in params if 'mean_network' in p.name] # or p.name.startswith('output_std_param')]
         params = [p for p in params if 'Adam' not in p.name]
         params = [p for p in params if 'main_optimizer' not in p.name]
-        print("debug, perams internal", params)
+        # print("debug, perams internal", params)
         return params
 
 

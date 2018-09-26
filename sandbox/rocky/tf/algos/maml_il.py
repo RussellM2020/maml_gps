@@ -10,6 +10,7 @@ from sandbox.rocky.tf.optimizers.quad_dist_expert_optimizer import QuadDistExper
 from sandbox.rocky.tf.optimizers.conjugate_gradient_optimizer import ConjugateGradientOptimizer
 from maml_examples.maml_experiment_vars import TESTING_ITRS, BASELINE_TRAINING_ITRS
 from rllab.misc.tensor_utils import flatten_tensors, unflatten_tensors
+from rllab.misc.ext import sliced_fun
 from collections import OrderedDict
 
 
@@ -29,6 +30,9 @@ class MAMLIL(BatchMAMLPolopt):
             l2loss_std_mult=1.0,
             importance_sampling_modifier=tf.identity,
             metalearn_baseline=False,
+            penalty=0.05,
+            constrain_against_central = True,
+            constrain_together = False,
             **kwargs):
         if optimizer is None:
             if optimizer_args is None:
@@ -53,6 +57,10 @@ class MAMLIL(BatchMAMLPolopt):
             self.extra_input_dim = kwargs["extra_input_dim"]
         else:
             self.extra_input_dim = 0
+
+        self.penalty = penalty
+        self.constrain_together = constrain_together
+        self.constrain_against_central = constrain_against_central
 
         super(MAMLIL, self).__init__(optimizer=optimizer, beta_steps=beta_steps, use_maml_il=True, metalearn_baseline=metalearn_baseline, **kwargs)
 
@@ -104,6 +112,7 @@ class MAMLIL(BatchMAMLPolopt):
         assert self.use_maml  # only maml supported
 
         dist = self.policy.distribution
+
 
         old_dist_info_vars, old_dist_info_vars_list = [], []
         for i in range(self.meta_batch_size):
@@ -163,6 +172,7 @@ class MAMLIL(BatchMAMLPolopt):
             al = tf.tile(al_const, tf.stack([tf.cast(tf.shape(obs_vars[0])[0] / self.max_path_length, tf.int32), 1]))
             al = tf.cast(al, dtype=tf.float32)
 
+            self.central_policy_dist_infos = []
             for i in range(self.meta_batch_size):  # for training task T_i
                 adv = adv_vars[i]
                 if self.metalearn_baseline:
@@ -185,25 +195,14 @@ class MAMLIL(BatchMAMLPolopt):
                                                       all_params=self.baseline.all_params)
 
                 dist_info_sym_i, params = self.policy.dist_info_sym(obs_vars[i], state_info_vars, all_params=self.policy.all_params)
+                self.central_policy_dist_infos.append([dist_info_sym_i , obs_vars[i]])
 
                 if self.kl_constrain_step == 0:
                     kl = dist.kl_sym(old_dist_info_vars[i], dist_info_sym_i)
                     kls.append(kl)
                 new_params.append(params)
                 logli_i = dist.log_likelihood_sym(action_vars[i], dist_info_sym_i)
-                # lr_per_step_slow = dist.likelihood_ratio_sym(action_vars[i], theta0_dist_info_vars[i], theta_l_dist_info_vars[i])
-                # lr_per_step_slow = self.ism(lr_per_step_slow)
-                # logli_old = dist.log_likelihood_sym(action_vars[i], theta0_dist_info_vars[i])
-                # logli_new = dist.log_likelihood_sym(action_vars[i], theta_l_dist_info_vars[i])
-                # logli_diff = logli_new-logli_old
-                # tf acrobatics
-                # logli_diff_by_path = tf.reduce_sum(tf.reshape(logli_diff,[-1,self.max_path_length]),1)
-                # logli_diff_by_path_ = tf.reshape(tf.tile(tf.reshape(logli_diff_by_path, [-1,1]), (1,self.max_path_length)),[-1])
-                # lr_by_path = tf.exp(logli_diff_by_path_)
-                # lr_by_path = self.ism(lr_by_path)
-
-
-
+            
                 keys = self.policy.all_params.keys()
                 theta_circle = OrderedDict({key: tf.stop_gradient(self.policy.all_params[key]) for key in keys})
                 dist_info_sym_i_circle, _ = self.policy.dist_info_sym(obs_vars[i], state_info_vars, all_params=theta_circle)
@@ -273,15 +272,6 @@ class MAMLIL(BatchMAMLPolopt):
             outer_surr_obj = tf.reduce_mean(m**2 - 2*m*a_star+a_star**2+self.l2loss_std_multiplier*(tf.square(tf.exp(s))))
             outer_surr_objs.append(outer_surr_obj)
 
-
-            # s_slow = dist_info_sym_i_slow["log_std"]
-            # m_slow = dist_info_sym_i_slow["mean"]
-            # outer_surr_obj_slow = tf.reduce_mean(tf.square(m_slow)-2*tf.multiply(m_slow,a_star)+self.l2loss_std_multiplier*(tf.square(tf.exp(s_slow))))
-            # outer_surr_objs_slow.append(outer_surr_obj_slow)
-            # old_outer_surr_objs.append(outer_surr_obj)
-
-
-
         outer_surr_obj = tf.reduce_mean(tf.stack(outer_surr_objs, 0))  # mean over all the different tasks
         # outer_surr_obj_slow = tf.reduce_mean(tf.stack(outer_surr_objs_slow, 0))  # mean over all the different tasks
         input_vars_list += obs_vars + action_vars + expert_action_vars + old_dist_info_vars_list  # +adv_vars # TODO: kill action_vars from this list, and if we're not doing kl, kill old_dist_info_vars_list too
@@ -297,15 +287,6 @@ class MAMLIL(BatchMAMLPolopt):
 
                 def grads_dotprod(A, B):
                     return tf.reduce_sum([tf.reduce_sum(a * b) for a, b in zip(A, B)])
-
-                # def mult_grad_by_number(num, grad_list):
-                #     return [num * grad for grad in grad_list]
-                #
-                # def unpack_adam_grads(grad_list):
-                #     output = []
-                #     for grad, var in grad_list:
-                #         output.append(grad)
-                #     return output
 
                 print("debug, constructing corr term for task", i)
 
@@ -342,12 +323,115 @@ class MAMLIL(BatchMAMLPolopt):
             correction_term=corr_term
         )
 
+        return dict()
+#######################################
 
+    @overrides
+    def init_experts_opt(self):
 
+        ###############################
+        #
+        # Variable Definitions
+        #
+        ###############################
+
+        all_task_dist_info_vars = []
+        all_obs_vars = []
+
+        for i, policy in enumerate(self.local_policies):
+
+            task_obs_var = self.env_partitions[i].observation_space.new_tensor_variable('obs%d' % i, extra_dims=1)
+            task_dist_info_vars = []
+
+            for j, other_policy in enumerate(self.local_policies):
+
+                state_info_vars = dict()  # Not handling recurrent policies
+                dist_info_vars = other_policy.dist_info_sym(task_obs_var, state_info_vars)
+                task_dist_info_vars.append(dist_info_vars)
+
+            all_obs_vars.append(task_obs_var)
+            all_task_dist_info_vars.append(task_dist_info_vars)
+
+        obs_var = self.env.observation_space.new_tensor_variable('obs', extra_dims=1)
+        action_var = self.env.action_space.new_tensor_variable('action', extra_dims=1)
+        advantage_var = tensor_utils.new_tensor('advantage', ndim=1, dtype=tf.float32)
+
+        old_dist_info_vars = {
+            k: tf.placeholder(tf.float32, shape=[None] + list(shape), name='old_%s' % k)
+            for k, shape in self.policy.distribution.dist_info_specs
+        }
+
+        old_dist_info_vars_list = [old_dist_info_vars[k] for k in self.policy.distribution.dist_info_keys]
+
+        central_obs_vars = [elem[1] for elem in self.central_policy_dist_infos]
+
+        input_list = [obs_var, action_var, advantage_var] + old_dist_info_vars_list + all_obs_vars + central_obs_vars
+
+        ###############################
+        #
+        # Local Policy Optimization
+        #
+        ###############################
+
+        self.optimizers = []
+        self.metrics = []
+
+        for n, policy in enumerate(self.local_policies):
+
+            state_info_vars = dict()
+            dist_info_vars = policy.dist_info_sym(obs_var, state_info_vars)
+            dist = policy.distribution
+
+            kl = dist.kl_sym(old_dist_info_vars, dist_info_vars)
+            lr = dist.likelihood_ratio_sym(action_var, old_dist_info_vars, dist_info_vars)
+            surr_loss = - tf.reduce_mean(lr * advantage_var)
+
+            if self.constrain_together:
+                additional_loss = Metrics.kl_on_others(n, dist, all_task_dist_info_vars)
+
+            elif self.constrain_against_central:
+                additional_loss = Metrics.kl_on_central(dist, dist_info_vars, self.central_policy_dist_infos[n][0])
+            
+            else:
+                additional_loss = tf.constant(0.0)
+
+            local_loss = surr_loss + self.penalty * additional_loss
+
+            kl_metric = tensor_utils.compile_function(inputs=input_list, outputs=additional_loss, log_name="KLPenalty%d" % n)
+            self.metrics.append(kl_metric)
+
+            mean_kl_constraint = tf.reduce_mean(kl)
+
+            optimizer = PenaltyLbfgsOptimizer(name='expertOptimizer_'+str(n))
+            optimizer.update_opt(
+                loss=local_loss,
+                target=policy,
+                leq_constraint=(mean_kl_constraint, self.step_size),
+                inputs=input_list,
+                constraint_name="mean_kl_%d" % n,
+            )
+            self.optimizers.append(optimizer)
+
+       
         return dict()
 
 
-#######################################
+    def optimize_expert_policies(self, itr, all_samples_data):
+
+        dist_info_keys = self.policy.distribution.dist_info_keys
+        for n, optimizer in enumerate(self.optimizers):
+
+            obs_act_adv_values = tuple(ext.extract(all_samples_data[n], "observations", "actions", "advantages"))
+            dist_info_list = tuple([all_samples_data[n]["agent_infos"][k] for k in dist_info_keys])
+            all_task_obs_values = tuple([samples_data["observations"] for samples_data in all_samples_data])
+
+            all_input_values = obs_act_adv_values + dist_info_list + all_task_obs_values + all_task_obs_values
+            optimizer.optimize(all_input_values)
+
+            kl_penalty = sliced_fun(self.metrics[n], 1)(all_input_values)
+            #logger.record_tabular('KLPenalty%d' % n, kl_penalty)
+
+
     @overrides
     def optimize_policy(self, itr, all_samples_data):
         assert len(all_samples_data) >= self.num_grad_updates + 1  # we collected the rollouts to compute the grads and then the test!
@@ -437,18 +521,7 @@ class MAMLIL(BatchMAMLPolopt):
             logger.log("Not Optimizing")
             #logger.record_tabular("ILLoss",float('nan'))
             return None
-        # logger.log("Computing loss after")
-      #  loss_after = self.optimizer.loss(input_vals_list)
-      #  logger.log("Computing KL after")
-       # mean_kl = self.optimizer.constraint_val(input_vals_list)
-       # logger.record_tabular('MeanKLBefore', mean_kl_before)
-       # logger.record_tabular('MeanKL', mean_kl)
-      #  logger.record_tabular('LossBefore', loss_before)
-      #  logger.record_tabular('LossAfter', loss_after)
-      #  logger.record_tabular('dLoss', loss_before - loss_after)
-        # getting rid of the above because of issues with tabular
-
-
+    
     @overrides
     def get_itr_snapshot(self, itr, samples_data):
         debug_params = self.policy.get_params_internal()
@@ -461,6 +534,33 @@ class MAMLIL(BatchMAMLPolopt):
         )
 
 
+
+class Metrics:
+    @staticmethod
+    def symmetric_kl(dist, info_vars_1, info_vars_2):
+     
+        side1 = tf.reduce_mean(dist.kl_sym(info_vars_2, info_vars_1))
+        side2 = tf.reduce_mean(dist.kl_sym(info_vars_1, info_vars_2))
+        return (side1 + side2) / 2
+
+    @staticmethod
+    def kl_on_others(n, dist, dist_info_vars):
+        # \sum_{j=1} E_{\sim S_j}[D_{kl}(\pi_j || \pi_i)]
+        if len(dist_info_vars) < 2:
+            return 0
+
+        kl_with_others = 0
+        for i in range(len(dist_info_vars)):
+            if i != n:
+                kl_with_others += Metrics.symmetric_kl(dist, dist_info_vars[i][i], dist_info_vars[i][n])
+
+        return kl_with_others / (len(dist_info_vars) - 1)
+
+    @staticmethod
+    def kl_on_central(dist, distInfoVarsExpert, distInfoVarsCentral):
+        # \sum_{j=1} E_{\sim S_j}[D_{kl}(\pi_j || \pi_i)]
+       
+        return Metrics.symmetric_kl(dist, distInfoVarsExpert , distInfoVarsCentral)
 
 
 

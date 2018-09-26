@@ -5,6 +5,8 @@ from rllab.baselines.zero_baseline import ZeroBaseline
 #from maml_examples.point_env_randgoal_expert import PointEnvRandGoalExpert
 from maml_examples.point_env_randgoal import PointEnvRandGoal
 #from maml_examples.point_env_randgoal_oracle import PointEnvRandGoalOracle
+
+from multiworld.
 from rllab.envs.normalized_env import normalize
 from rllab.misc.instrument import stub, run_experiment_lite
 from sandbox.rocky.tf.policies.maml_minimal_gauss_mlp_policy import MAMLGaussianMLPPolicy

@@ -2,7 +2,12 @@ from rllab.algos.base import RLAlgorithm
 from sandbox.rocky.tf.policies.base import Policy
 from sandbox.rocky.tf.samplers.batch_sampler import BatchSampler
 from sandbox.rocky.tf.samplers.vectorized_sampler import VectorizedSampler
+from sandbox.rocky.tf.samplers.policy_sampler import Sampler
 from rllab.sampler.stateful_pool import singleton_pool
+from rllab.baselines.linear_feature_baseline import LinearFeatureBaseline
+
+from sandbox.rocky.tf.policies.gaussian_mlp_policy import GaussianMLPPolicy
+
 from copy import deepcopy
 # import matplotlib
 # matplotlib.use('Pdf')
@@ -33,15 +38,21 @@ class BatchMAMLPolopt(RLAlgorithm):
     def __init__(
             self,
             env,
+            partitions,
+            trainGoals,
             policy,
             baseline,
             metalearn_baseline=False,
             scope=None,
-            n_itr=500,
+            
+            expert_num_itrs = 100,
+            metaL_num_itrs=100,
+            
             start_itr=0,
-            batch_size=100,
-            max_path_length=500,
-            meta_batch_size=100,
+            fast_batch_size=20,
+            max_path_length=100,
+            meta_batch_size=20,
+            expert_batch_size = 10000,
            
             num_grad_updates=1,
             num_grad_updates_for_testing=1,
@@ -81,6 +92,8 @@ class BatchMAMLPolopt(RLAlgorithm):
             seed=1,
             debug_pusher=False,
             updateMode = 'vec',
+          
+            max_pool_size = None,
             **kwargs
     ):
         """
@@ -88,8 +101,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         :param policy: Policy
         :type policy: Policy
         :param baseline: Baseline
-        :param scope: Scope for identifying the algorithm. Must be specified if running multiple algorithms
-        simultaneously, each using different environments and policies
+        :param scope: Scope for identifying the algorithm. Must be specified if running multiple algorithms simultaneously, each using different environments and policies
         :param n_itr: Number of iterations.
         :param start_itr: Starting iteration.
         :param batch_size: Number of samples per iteration.  #
@@ -108,18 +120,20 @@ class BatchMAMLPolopt(RLAlgorithm):
         """
         self.seed=seed
         self.env = env
+        self.trainGoals = np.array(trainGoals)
         self.policy = policy
         self.load_policy = load_policy
         self.baseline = baseline
         self.metalearn_baseline = metalearn_baseline
         self.scope = scope
-        self.n_itr = n_itr
+        self.n_itr = metaL_num_itrs
+        self.expert_num_itrs = expert_num_itrs
         self.start_itr = start_itr
        
         # batch_size is the number of trajectories for one fast grad update.
         # self.batch_size is the number of total transitions to collect.
-        self.numTrajs_perTask = batch_size
-        self.batch_size = batch_size * max_path_length * meta_batch_size
+        self.numTrajs_perTask = fast_batch_size
+        self.batch_size = fast_batch_size * max_path_length * meta_batch_size
         self.max_path_length = max_path_length
         self.discount = discount
         self.gae_lambda = gae_lambda
@@ -139,6 +153,7 @@ class BatchMAMLPolopt(RLAlgorithm):
 
         #self.taskPoolSize = taskPoolSize
         self.meta_batch_size = meta_batch_size  # number of tasks
+        self.max_pool_size = max_pool_size
         # assert meta_batch_size <= taskPoolSize
 
         self.num_grad_updates = num_grad_updates  # number of gradient steps during training
@@ -161,212 +176,130 @@ class BatchMAMLPolopt(RLAlgorithm):
         self.extra_input = extra_input
         self.extra_input_dim = extra_input_dim
         self.debug_pusher=debug_pusher
-        # Next, we will set up the goals and potentially trajectories that we plan to use.
-        # If we use trajectorie
-        print("debug1", tf.__version__)
 
-        assert goals_to_load is None, "deprecated"
-        if self.use_pooled_goals:
-            if expert_trajs_dir is not None:
-                assert goals_pool_to_load is None, "expert_trajs already comes with its own goals, please disable goals_pool_to_load"
-                goals_pool = joblib.load(self.expert_trajs_dir+"goals_pool.pkl")
-                self.goals_pool = goals_pool['goals_pool']
-                #self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
-                if "demos_path" in goals_pool.keys():
-                    self.demos_path = goals_pool["demos_path"]
-                else:
-                    self.demos_path = expert_trajs_dir
-                #print("successfully extracted goals pool", self.goals_idxs_for_itr_dict.keys(), self.goals_idxs_for_itr_dict[0], self.goals_idxs_for_itr_dict[1])
+        if partitions == None:
+            raise AssertionError('partitions None')
+        self.env_partitions = partitions
+        self.n_parts = len(self.env_partitions)
+        self.local_policies = [
+            GaussianMLPPolicy(name='local_policy_%d' % (n), env_spec=env.spec, hidden_sizes = (100,100)) for n in range(self.n_parts)
+        ]
 
-                self.numTasks  = len(self.goals_pool)
-                if 'idxs_dict' in goals_pool:
-                    self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
-
-                else:
-                    self.goals_idxs_for_itr_dict = {}
-                    
-                    #assert self.meta_batch_size <= self.taskPoolSize
-                    for i in range(self.n_itr):
-                        self.goals_idxs_for_itr_dict[i] = np.random.choice(np.arange(self.numTasks), self.meta_batch_size, replace = False)
-                
-
-                # if "demos_path" in goals_pool.keys():
-                #     self.demos_path = goals_pool["demos_path"]
-                # else:
-                #     self.demos_path = expert_trajs_dir
-
-                # print("successfully extracted goals pool", self.goals_idxs_for_itr_dict.keys(), self.goals_idxs_for_itr_dict[0], self.goals_idxs_for_itr_dict[1])
-            elif goals_pool_to_load is not None:
-                logger.log("Loading goals pool from %s ..." % goals_pool_to_load)
-                self.goals_pool = joblib.load(goals_pool_to_load)['goals_pool']
-                self.goals_idxs_for_itr_dict = joblib.load(goals_pool_to_load)['idxs_dict']
-            else:
-                # we build our own goals pool and idxs_dict
-                if goals_pool_size is None:
-                    self.goals_pool_size = (self.n_itr-self.start_itr)*self.meta_batch_size
-                else:
-                    self.goals_pool_size = goals_pool_size
-
-                logger.log("Sampling a pool of tasks/goals for this meta-batch...")
-                env = self.env
-                while 'sample_goals' not in dir(env):
-                    env = env.wrapped_env
-                self.goals_pool = env.sample_goals(self.goals_pool_size)
-                self.goals_idxs_for_itr_dict = {}
-                for itr in range(self.start_itr, self.n_itr):
-                    self.goals_idxs_for_itr_dict[itr] = rd.sample(range(self.goals_pool_size), self.meta_batch_size)
-
-            # inspecting the goals pool
-            env = self.env
-            while 'sample_goals' not in dir(env):
-                env = env.wrapped_env
-            reset_dimensions = env.sample_goals(1).shape[1:]
-            dimensions = np.shape(self.goals_pool[self.goals_idxs_for_itr_dict[0][0]])
-            assert reset_dimensions == dimensions, "loaded dimensions are %s, do not match with environment's %s" % (
-            dimensions, reset_dimensions)
-            # inspecting goals_idxs_for_itr_dict
-            assert set(range(self.start_itr, self.n_itr)).issubset(set(self.goals_idxs_for_itr_dict.keys())), \
-                "Not all meta-iteration numbers have idx_dict in %s" % goals_pool_to_load
-            for itr in range(self.start_itr, self.n_itr):
-                num_goals = len(self.goals_idxs_for_itr_dict[itr])
-                assert num_goals >= self.meta_batch_size, "iteration %s contained %s goals when at least %s are needed" % (itr, num_goals, self.meta_batch_size)
-                self.goals_idxs_for_itr_dict[itr] = self.goals_idxs_for_itr_dict[itr][:self.meta_batch_size]
-
-            # we build goals_to_use_dict regardless of how we obtained goals_pool, goals_idx_for_itr_dict
-            self.goals_to_use_dict = {}
-            for itr in range(self.start_itr, self.n_itr):
-                
-                self.goals_to_use_dict[itr] = np.array([self.goals_pool[idx] for idx in self.goals_idxs_for_itr_dict[itr]])
-        else:  # backwards compatibility code for old-format ETs
-            assert False, "deprecated"
-            # self.goals_to_use_dict = joblib.load(self.expert_trajs_dir+"goals.pkl")
-            # assert set(range(self.start_itr, self.n_itr)).issubset(set(self.goals_to_use_dict.keys())), "Not all meta-iteration numbers have saved goals in %s" % expert_trajs_dir
-            # chopping off unnecessary meta-iterations and goals
-            # self.goals_to_use_dict = {itr:self.goals_to_use_dict[itr][:self.meta_batch_size]
-            #                           for itr in range(self.start_itr,self.n_itr)}
-        # saving goals pool
-        if goals_pickle_to is not None:
-            # logger.log("Saving goals to %s..." % goals_pickle_to)
-            # joblib_dump_safe(self.goals_to_use_dict, goals_pickle_to)
-            logger.log("Saving goals pool to %s..." % goals_pickle_to)
-            joblib_dump_safe(dict(goals_pool=self.goals_pool, idxs_dict=self.goals_idxs_for_itr_dict), goals_pickle_to)
+        self.local_baselines = [
+            LinearFeatureBaseline(env_spec=env.spec) for n in range(self.n_parts)
+        ]
 
 
+        self.local_samplers = [
+            Sampler(
+                env=env,
+                policy=policy,
+                baseline=baseline,
+                scope=scope,
+                batch_size=expert_batch_size,
+                max_path_length=max_path_length,
+                discount=discount,
+                gae_lambda=gae_lambda,
+                center_adv=center_adv,
+                positive_adv=positive_adv,
+                whole_paths=whole_paths,
+                fixed_horizon=fixed_horizon,
+                force_batch_sampler=force_batch_sampler
+            ) for env, policy, baseline in zip(self.env_partitions, self.local_policies, self.local_baselines)
+        ]
 
 
-        # if sampler_cls is None:
-        #     if singleton_pool.n_parallel > 1:
-        #         sampler_cls = BatchSampler
-        #         print("Using Batch Sampler")
-        #     else:
-        #         sampler_cls = VectorizedSampler
-        #         print("Using Vectorized Sampler")
         if sampler_args is None:
             sampler_args = dict()
         if 'n_envs' not in sampler_args.keys():
             sampler_args['n_envs'] = self.meta_batch_size
         #self.sampler = sampler_cls(self, **sampler_args)
 
-        self.parallel_sampler = BatchSampler(self, **sampler_args)
+        #self.parallel_sampler = BatchSampler(self, **sampler_args)
         self.vec_sampler = VectorizedSampler(self, **sampler_args)
 
 
     def start_worker(self):
-        self.parallel_sampler.start_worker()
+        #self.parallel_sampler.start_worker()
         self.vec_sampler.start_worker()
 
-        if self.plot:
-            plotter.init_plot(self.env, self.policy)
+        for sampler in self.local_samplers:
+            sampler.start_worker()
 
     def shutdown_worker(self):
-        self.parallel_sampler.shutdown_worker()
+        #self.parallel_sampler.shutdown_worker()
         self.vec_sampler.shutdown_worker()
 
-
-
+        for sampler in self.local_samplers:
+            sampler.shutdown_worker()
 
     def obtain_samples(self, itr, reset_args=None, log_prefix='',testitr=False, preupdate=False, mode = 'vec'):
         # This obtains samples using self.policy, and calling policy.get_actions(obses)
         # return_dict specifies how the samples should be returned (dict separates samples
         # by task)
         reset_args = np.array(reset_args)
-        if mode == 'vec':
-            sampler = self.vec_sampler
-        else:
-            sampler = self.parallel_sampler
+        assert  mode == 'vec'
+        sampler = self.vec_sampler
+        #else:
+        #sampler = self.parallel_sampler
 
         paths = sampler.obtain_samples(itr=itr, reset_args=reset_args, return_dict=True, log_prefix=log_prefix, 
             extra_input=self.extra_input, extra_input_dim=(self.extra_input_dim if self.extra_input is not None else 0), preupdate=preupdate,  numTrajs_perTask = self.numTrajs_perTask)
         assert type(paths) == dict
         return paths
 
-    def obtain_agent_info_offpolicy(self, itr, expert_trajs_dir=None, offpol_trajs=None, treat_as_expert_traj=False, log_prefix=''):
-        #assert expert_trajs_dir is None, "deprecated"
-        start = time.time()
-        if offpol_trajs is None:
-            assert expert_trajs_dir is not None, "neither offpol_trajs nor expert_trajs_dir is provided"
-            if self.use_pooled_goals:
-                for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr]):
-                    assert np.array_equal(self.goals_pool[taskidx], self.goals_to_use_dict[itr][t]), "fail"
-                offpol_trajs = {t : joblib.load(expert_trajs_dir+str(taskidx)+self.expert_trajs_suffix+".pkl") for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr])}
-            else:
-                offpol_trajs = joblib.load(expert_trajs_dir+str(itr)+self.expert_trajs_suffix+".pkl")
+  
+              
 
-            offpol_trajs = {tasknum:offpol_trajs[tasknum] for tasknum in range(self.meta_batch_size)}
-
-        # some initial rearrangement
-        tasknums = offpol_trajs.keys() # tasknums is range(self.meta_batch_size) as can be seen above
-        for t in tasknums:
-            for path in offpol_trajs[t]:
-                if 'expert_actions' not in path.keys() and treat_as_expert_traj:
-                   # print("copying expert actions, you should do this only 1x per metaitr")
-                    path['expert_actions'] = np.clip(deepcopy(path['actions']), -1.0, 1.0)
-
-                if treat_as_expert_traj:
-                    path['agent_infos'] = dict(mean=[[0.0] * len(path['actions'][0])]*len(path['actions']),log_std=[[0.0] * len(path['actions'][0])]*len(path['actions']))
-                else:
-                    path['agent_infos'] = [None] * len(path['rewards'])
-
-        if not treat_as_expert_traj:
-            print("debug12, running offpol on own previous samples")
-            running_path_idx = {t: 0 for t in tasknums}
-            running_intra_path_idx = {t: 0 for t in tasknums}
-            while max([running_path_idx[t] for t in tasknums]) > -0.5: # we cycle until all indices are -1
-                observations = [offpol_trajs[t][running_path_idx[t]]['observations'][running_intra_path_idx[t]]
-                                for t in tasknums]
-                actions, agent_infos = self.policy.get_actions(observations)
-                agent_infos = split_tensor_dict_list(agent_infos)
-                for t, action, agent_info in zip(itertools.count(), actions, agent_infos):
-                    offpol_trajs[t][running_path_idx[t]]['agent_infos'][running_intra_path_idx[t]] = agent_info
-                    # INDEX JUGGLING:
-                    if -0.5 < running_intra_path_idx[t] < len(offpol_trajs[t][running_path_idx[t]]['rewards'])-1:
-                        # if we haven't reached the end:
-                        running_intra_path_idx[t] += 1
-                    else:
-
-                        if -0.5 < running_path_idx[t] < len(offpol_trajs[t])-1:
-                            # we wrap up the agent_infos
-                            offpol_trajs[t][running_path_idx[t]]['agent_infos'] = \
-                                stack_tensor_dict_list(offpol_trajs[t][running_path_idx[t]]['agent_infos'])
-                            # if we haven't reached the last path:
-                            running_intra_path_idx[t] = 0
-                            running_path_idx[t] += 1
-                        elif running_path_idx[t] == len(offpol_trajs[t])-1:
-                            offpol_trajs[t][running_path_idx[t]]['agent_infos'] = \
-                                stack_tensor_dict_list(offpol_trajs[t][running_path_idx[t]]['agent_infos'])
-                            running_intra_path_idx[t] = -1
-                            running_path_idx[t] = -1
-                        else:
-                            # otherwise we set the running index to -1 to signal a stop
-                            running_intra_path_idx[t] = -1
-                            running_path_idx[t] = -1
-        total_time = time.time()-start
-       # logger.record_tabular(log_prefix+"TotalExecTime", total_time)
-        return offpol_trajs
-
-    def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
-        return self.vec_sampler.process_samples(itr, paths, prefix=prefix, log=log, fast_process=fast_process, testitr=testitr, metalearn_baseline=metalearn_baseline)
+    def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False , isExpertTraj = False):
+        return self.vec_sampler.process_samples(itr, paths, prefix=prefix, log=log, fast_process=fast_process, testitr=testitr, metalearn_baseline=metalearn_baseline , isExpertTraj = isExpertTraj)
         #vec sampler and parallel sampler both call process samples in base
+
+
+    def trainExperts(self, num_training_itrs):
+
+        for itr in range(num_training_itrs):
+            print('############itr_'+str(itr)+'################')
+            all_paths = []
+           
+            for sampler in self.local_samplers:
+                all_paths.append(sampler.obtain_samples(itr))
+
+            #if itr == (num_training_itrs-1) or itr == 0:
+            log = True
+            #else:
+                #log = False
+            all_samples_data = []
+            for n, (sampler, paths) in enumerate(zip(self.local_samplers, all_paths)):
+                with logger.tabular_prefix(str(n)):
+                    all_samples_data.append(sampler.process_samples(itr, paths, log = log))
+
+            logger.log("Logging diagnostics...")
+            self.log_diagnostics(all_paths, prefix = '')
+
+            logger.log("Optimizing policy...")
+            self.optimize_expert_policies(itr, all_samples_data)
+
+            # logger.log("Saving snapshot...")
+            # params = self.get_itr_snapshot(itr, all_samples_data)  # , **kwargs)
+            # logger.save_itr_params(itr, params)
+
+            # logger.log("Saved")
+            # logger.record_tabular('Time', time.time() - start_time)
+            # logger.record_tabular('ItrTime', time.time() - itr_start_time)
+            logger.dump_tabular(with_prefix=False)
+        
+        for t in range(len(all_paths)):
+            for path in all_paths[t]:
+               
+                path['expert_actions'] = np.clip(deepcopy(path['actions']), -1.0, 1.0) 
+                path['agent_infos'] = dict(mean=[[0.0] * len(path['actions'][0])]*len(path['actions']),log_std=[[0.0] * len(path['actions'][0])]*len(path['actions']))
+
+        expertDict = {i : all_paths[i] for i in range(len(all_paths))}
+        return expertDict
+
+
+
 
     def train(self):
         # TODO - make this a util
@@ -379,7 +312,9 @@ class BatchMAMLPolopt(RLAlgorithm):
             # Code for loading a previous policy. Somewhat hacky because needs to be in sess.
             if self.load_policy is not None:
                 self.policy = joblib.load(self.load_policy)['policy']
+                
             self.init_opt()
+            self.init_experts_opt()
             # initialize uninitialized vars  (only initialize vars that were not loaded)
             uninit_vars = []
             # sess.run(tf.global_variables_initializer())
@@ -393,14 +328,24 @@ class BatchMAMLPolopt(RLAlgorithm):
             self.start_worker()
             start_time = time.time()
             self.metaitr=0
-            
-            all_expert_trajs = self.load_expert_trajs()
+         
+            self.expertLearning_itrs = [30*i for i in range(100)]
 
+            expertPaths = []
             for itr in range(self.start_itr, self.n_itr):
 
-                expert_trajs_for_meta_itr = {t : all_expert_trajs[taskidx] for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr])}
-                #expert_trajs_for_meta_itr = {i: all_expert_trajs[t] for i,t in enumerate( self.goals_idxs_for_itr_dict[itr])}
-               
+                
+                if itr in self.expertLearning_itrs:
+                    expertPathsDict = self.trainExperts(self.expert_num_itrs)
+                   
+
+                # trainIndices = np.random.choice(np.arange(0, len(self.trainGoals)), self.meta_batch_size, replace = False)
+                # curr_trainGoals = self.trainGoals[trainIndices]
+                # curr_expertPaths = {i : expertPathsDict[key] for i, key in enumerate(trainIndices)}
+                curr_trainGoals = self.trainGoals
+                curr_expertPaths = expertPathsDict
+                
+              
                 itr_start_time = time.time()
                 np.random.seed(self.seed+itr)
                 tf.set_random_seed(self.seed+itr)
@@ -412,36 +357,27 @@ class BatchMAMLPolopt(RLAlgorithm):
                     beta_steps_range = range(self.beta_steps) if itr not in self.testing_itrs else range(self.test_goals_mult)
                     beta0_step0_paths = None
                     num_inner_updates = self.num_grad_updates_for_testing if itr in self.testing_itrs else self.num_grad_updates
-                    if self.use_maml_il and itr not in self.testing_itrs:
-                        if not self.use_pooled_goals:
-                            assert False, "deprecated"       
-                        print("debug, goals_idxs_for_itr", self.goals_idxs_for_itr_dict[itr])
-                 
+                   
                     for beta_step in beta_steps_range:
                         all_samples_data_for_betastep = []
                         print("debug, pre-update std modifier")
                         self.policy.std_modifier = self.pre_std_modifier
                         
-                        self.policy.switch_to_init_dist
+                        self.policy.switch_to_init_dist()
                         self.policy.perTask_switch_to_init_dist()  # Switch to pre-update policy
                         
                         if itr in self.testing_itrs:
                           
-                            env = self.env
-                            while 'sample_goals' not in dir(env):
+                            # env = self.env
+                            # while 'sample_goals' not in dir(env):
 
-                                env = env.wrapped_env
-                            if self.test_on_training_goals:
-                                
-                                # goals_to_use = self.goals_pool[self.meta_batch_size*beta_step:self.meta_batch_size*(beta_step+1)]
-                                goals_to_use = self.goals_to_use_dict[itr]
-                                print("Debug11", goals_to_use)
-                            else:
-                                
-                               
-                                goals_to_use = env.sample_goals(self.meta_batch_size)
-                            self.goals_to_use_dict[itr] = goals_to_use if beta_step==0 else np.concatenate((self.goals_to_use_dict[itr],goals_to_use))
+                            #     env = env.wrapped_env
+                            #if self.test_on_training_goals:
 
+                            goals_to_use = curr_trainGoals
+                            # else:
+                            #     goals_to_use = env.sample_goals(self.meta_batch_size)
+                            
                         for step in range(num_inner_updates+1): # inner loop
                             logger.log('** Betastep %s ** Step %s **' % (str(beta_step), str(step)))
                             logger.log("Obtaining samples...")
@@ -450,7 +386,9 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 if step < num_inner_updates:
                                     print('debug12.0.0, test-time sampling step=', step) #, goals_to_use)
                                     paths = self.obtain_samples(itr=itr, reset_args=goals_to_use,
-                                                                    log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=True, mode = 'parallel')
+                                                                    log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=True, mode = 'vec')
+
+
                                     paths = store_agent_infos(paths)  # agent_infos_orig is _taskd here
 
                                 elif step == num_inner_updates:
@@ -467,17 +405,15 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 print("debug12.1, regular sampling") #, self.goals_to_use_dict[itr])
 
 
-                                paths = self.obtain_samples(itr=itr, reset_args=self.goals_to_use_dict[itr], log_prefix=str(beta_step)+"_"+str(step),preupdate=True, mode = 'parallel')
+                                paths = self.obtain_samples(itr=itr, reset_args=curr_trainGoals, log_prefix=str(beta_step)+"_"+str(step),preupdate=True, mode = 'vec')
+
+                            
                                 if beta_step == 0 and step == 0:
                                     paths = store_agent_infos(paths)  # agent_infos_orig is populated here
                                     beta0_step0_paths = deepcopy(paths)
                             elif step == num_inner_updates:
                                 print("debug12.2, expert traj")
-                                paths = self.obtain_agent_info_offpolicy(itr=itr,
-                                                                         offpol_trajs=expert_trajs_for_meta_itr,
-                                                                         
-                                                                         treat_as_expert_traj=True,
-                                                                         log_prefix=str(beta_step)+"_"+str(step))
+                                paths = curr_expertPaths
                                 
 
                             else:
@@ -487,6 +423,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                             logger.log("Processing samples...")
                             samples_data = {}
 
+                         
                             for tasknum in paths.keys():  # the keys are the tasks
                                 # don't log because this will spam the console with every task.
 
@@ -510,7 +447,7 @@ class BatchMAMLPolopt(RLAlgorithm):
 
 
                             if step == num_inner_updates:
-                                logger.record_tabular("AverageReturnLastTest", self.parallel_sampler.memory["AverageReturnLastTest"],front=True)  #TODO: add functionality for multiple grad steps
+                                #ogger.record_tabular("AverageReturnLastTest", self.parallel_sampler.memory["AverageReturnLastTest"],front=True)  #TODO: add functionality for multiple grad steps
                                 logger.record_tabular("TestItr", ("1" if testitr else "0"),front=True)
                                 logger.record_tabular("MetaItr", self.metaitr,front=True)
                            
@@ -525,8 +462,6 @@ class BatchMAMLPolopt(RLAlgorithm):
                                 if (itr in self.testing_itrs or not self.use_maml_il or step<num_inner_updates-1) and step < num_inner_updates:
                                     # do not update on last grad step, and do not update on second to last step when training MAMLIL
                                     logger.log("Computing policy updates...")
-
-                                   
                                     self.policy.compute_updated_dists(samples=samples_data)
 
                         logger.log("Optimizing policy...")
@@ -548,88 +483,6 @@ class BatchMAMLPolopt(RLAlgorithm):
 
                     #self.plotTrajs(itr, all_paths_for_plotting)
         self.shutdown_worker()
-
-    
-
-
-    def load_expert_trajs(self):
-        all_expert_trajs = {}
-        
-        for taskidx in range(self.numTasks):
-            try:
-                demos =  joblib.load(self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl")
-
-                if self.extra_input is not None:
-                    demos_plus_ei=[]
-                    for demo in demos:
-                        extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
-                        obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
-                        demo['observations'] = obs_plus_ei
-                        demos_plus_ei.append(demo)
-
-                    all_expert_trajs[taskidx] = demos_plus_ei
-                else:
-                    all_expert_trajs[taskidx] = demos
-            except:
-                print('File_'+str(taskidx)+'_not present')
-
-        return all_expert_trajs
-
-            # offpol_trajs = {t : joblib.load(expert_trajs_dir+str(taskidx)+self.expert_trajs_suffix+".pkl") for t, taskidx in enumerate(self.goals_idxs_for_itr_dict[itr])}
-            # else:
-            #     offpol_trajs = joblib.load(expert_trajs_dir+str(itr)+self.expert_trajs_suffix+".pkl")                
-
-            # demos_path = self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl"
-            # # logger.log("loading demos path %s" % demos_path)
-            # demos = joblib.load(demos_path)
-            # # conversion code from Chelsea's format
-            # if type(demos) is dict and 'demoU' in demos.keys():
-            #     converted_demos = []
-            #     for i,demoU in enumerate(demos['demoU']):
-            #         if int(demos['xml'][-5]) % 2 == 0 and not self.debug_pusher:
-            #             #flips the object and the distractor
-            #             demoX = pusher_env.shuffle_demo(demos['demoX'][i])
-            #             if i ==0:
-            #                 print("using demo xml and flipping", demos['xml'])
-            #         else:
-            #             demoX = demos['demoX'][i]
-            #             if i==0:
-            #                 print("using demo xml", demos['xml'])
-            #         if self.extra_input is not None:
-            #             extra = np.zeros((np.shape(demoX)[0], self.extra_input_dim))
-            #             demoX = np.concatenate((demoX, extra), -1)
-
-            #         converted_demos.append({'observations': demoX, 'actions': demoU})
-            #     # print("debug, using xml for demos", demos['xml'])
-            #     all_expert_trajs[t] = converted_demos
-            # else:
-            #     if self.extra_input is not None:
-            #         demos_plus_ei=[]
-            #         for demo in demos:
-            #             extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
-            #             obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
-            #             demo['observations'] = obs_plus_ei
-            #             demos_plus_ei.append(demo)
-            #         all_expert_trajs[t] = demos_plus_ei
-            #     else:
-                 
-            #print('Loaded Task '+str(taskidx))
-
-
-        #all_expert_trajs = {t: all_expert_trajs[t] for t in range(self.meta_batch_size)}
-
-        if self.limit_demos_num is not None:
-            print("limit_demos_num", self.limit_demos_num)
-            all_expert_trajs = {t:rd.sample(all_expert_trajs[t],self.limit_demos_num) for t in all_expert_trajs.keys()}
-            # all_expert_trajs = {t:all_expert_trajs[t][:self.limit_demos_num] for t in all_expert_trajs.keys()}
-        for t in all_expert_trajs.keys():
-
-            for path in all_expert_trajs[t]:
-                if 'expert_actions' not in path.keys():
-                    path['expert_actions'] = np.clip(deepcopy(path['actions']), -1.0, 1.0)
-
-        return all_expert_trajs
-
 
     def plotTrajs(self, itr , all_paths_for_plotting):
         if True and itr in PLOT_ITRS and self.env.observation_space.shape[0] == 2: # point-mass
@@ -754,8 +607,8 @@ class BatchMAMLPolopt(RLAlgorithm):
 
     def log_diagnostics(self, paths, prefix):
         self.env.log_diagnostics(paths, prefix)
-        self.policy.log_diagnostics(paths, prefix)
-        self.baseline.log_diagnostics(paths)
+        # self.policy.log_diagnostics(paths, prefix)
+        # self.baseline.log_diagnostics(paths)
 
     def init_opt(self):
         """

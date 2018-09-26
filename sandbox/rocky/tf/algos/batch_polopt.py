@@ -100,9 +100,9 @@ class BatchPolopt(RLAlgorithm):
         self.fixed_horizon = fixed_horizon
         if sampler_cls is None:
             #if self.policy.vectorized and not force_batch_sampler:
-            # sampler_cls = VectorizedSampler
+            sampler_cls = VectorizedSampler
             #else:
-            sampler_cls = BatchSampler
+            #sampler_cls = BatchSampler
         if sampler_args is None:
             sampler_args = dict()
         self.sampler = sampler_cls(self, **sampler_args)
@@ -141,11 +141,11 @@ class BatchPolopt(RLAlgorithm):
         if reset_args is None:
             reset_args = self.reset_arg
         # return self.sampler.obtain_samples(itr, reset_args=reset_args, save_img_obs=self.save_img_obs) # we'll just save the whole paths and keep the observations
-        print("debug, obtaining samples")
+        #print("debug, obtaining samples")
         return self.sampler.obtain_samples(itr=itr, reset_args=reset_args, return_dict=False, extra_input=self.extra_input, extra_input_dim=(self.extra_input_dim if self.extra_input is not None else 0), preupdate=preupdate)
 
-    def process_samples(self, itr, paths):
-        return self.sampler.process_samples(itr, paths)
+    def process_samples(self, itr, paths , isExpertTraj = False, log = True):
+        return self.sampler.process_samples(itr, paths , isExpertTraj = isExpertTraj, log = log)
 
     def train(self):
         with tf.Session() as sess:
@@ -302,14 +302,9 @@ class BatchPolopt(RLAlgorithm):
                             input("Plotting evaluation run: Press Enter to "
                                   "continue...")
 
-
-
-
-
-
-
-
-
+        import ipdb
+        ipdb.set_trace()
+        brace = 'a'
         self.shutdown_worker()
 
     def log_diagnostics(self, paths):

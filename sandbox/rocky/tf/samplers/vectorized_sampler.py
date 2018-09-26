@@ -53,7 +53,7 @@ class VectorizedSampler(BaseSampler):
         # reset_args: arguments to pass to the environments to reset
         # return_dict: whether or not to return a dictionary or list form of paths
 
-        logger.log("Obtaining samples for iteration %d..." % itr)
+        #logger.log("Obtaining samples for iteration %d..." % itr)
 
         if extra_input is not None:
             if extra_input == "onehot_exploration":
@@ -117,7 +117,7 @@ class VectorizedSampler(BaseSampler):
         dones = np.asarray([True] * self.vec_env.num_envs)
         running_paths = [None] * self.vec_env.num_envs
 
-        pbar = ProgBarCounter(self.batch_size)
+        #pbar = ProgBarCounter(self.batch_size)
         policy_time = 0
         env_time = 0
         process_time = 0
@@ -172,15 +172,11 @@ class VectorizedSampler(BaseSampler):
                     running_paths[idx] = None
                     path_nums[idx] += 1
             process_time += time.time() - t
-            pbar.inc(len(obses))
+            #pbar.inc(len(obses))
             obses = next_obses
 
 
-        pbar.stop()
-
-
-
-
+       # pbar.stop()
 
       #  logger.record_tabular(log_prefix + "PolicyExecTime", policy_time)
       #  logger.record_tabular(log_prefix + "EnvExecTime", env_time)

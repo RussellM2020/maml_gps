@@ -7,6 +7,7 @@ from rllab.misc import logger
 from rllab.misc import tensor_utils
 from rllab.sampler.stateful_pool import singleton_pool, SharedGlobal
 from rllab.sampler.utils import rollout
+from rllab.misc.tensor_utils import flatten_tensors
 
 
 def _worker_init(G, id):
@@ -39,6 +40,7 @@ def _worker_populate_task(G, env, policy, scope=None):
     G.policy = pickle.loads(policy)
 
 
+
 def _worker_terminate_task(G, scope=None):
     G = _get_scoped_G(G, scope)
     if getattr(G, "env", None):
@@ -56,11 +58,11 @@ def populate_task(env, policy, scope=None):
             _worker_populate_task,
             [(pickle.dumps(env), pickle.dumps(policy), scope)] * singleton_pool.n_parallel
         )
-    else:
+    #else:
         # avoid unnecessary copying
-        G = _get_scoped_G(singleton_pool.G, scope)
-        G.env = env
-        G.policy = policy
+    G = _get_scoped_G(singleton_pool.G, scope)
+    G.env = env
+    G.policy = policy
     logger.log("Populated")
 
 
@@ -85,29 +87,56 @@ def set_seed(seed):
     )
 
 
+# def _worker_set_all_param_vals(G, all_param_vals, scope=None):
+
+#     G = _get_scoped_G(G, scope)
+#     G.policy.all_param_vals = all_param_vals
+
+
+
+
 def _worker_set_policy_params(G, params, scope=None):
+
+
     G = _get_scoped_G(G, scope)
     G.policy.set_param_values(params)
+
+
+# def _worker_set_all_param_vals(G, all_param_vals, scope=None):
+
+
+#     G = _get_scoped_G(G, scope)
+#     G.policy.all_param_vals = all_param_vals
+    
 
 def _worker_set_env_params(G,params,scope=None):
     G = _get_scoped_G(G, scope)
     G.env.set_param_values(params)
 
-def _worker_collect_one_path(G, max_path_length, scope=None, reset_arg=None):
+def _worker_collect_one_path(G, max_path_length = 100, scope=None, reset_arg=None, taskIdx = 0 ,  extra_infos = None, pathNum = 0,):
     G = _get_scoped_G(G, scope)
-    path = rollout(G.env, G.policy, max_path_length, reset_arg=reset_arg)
+
+    path = rollout(G.env, G.policy, max_path_length =  max_path_length, reset_arg=reset_arg, taskIdx = taskIdx, pathNum = pathNum , extra_infos = extra_infos)
     return path, len(path["rewards"])
+
+
+
+
 
 
 def sample_paths(
         policy_params,
+       
+        
         max_samples,
         max_path_length=np.inf,
         env_params=None,
         scope=None,
         reset_arg=None,
         show_prog_bar=True,
-        multi_task=False):
+        multi_task=False,
+        extra_infos = None,
+        taskIdx = 0):
     """
     :param policy_params: parameters for the policy. This will be updated on each worker process
     :param max_samples: desired maximum number of samples to be collected. The actual number of collected samples
@@ -115,42 +144,29 @@ def sample_paths(
     reached
     :param max_path_length: horizon / maximum length of a single trajectory
     :return: a list of collected paths
-    """
-    if multi_task:
-        assert len(policy_params) == singleton_pool.n_parallel
-        all_params = [(params, scope) for params in policy_params]
-        singleton_pool.run_each(
-            _worker_set_policy_params,
-            all_params,
-        )
-    else:
-        singleton_pool.run_each(
-            _worker_set_policy_params,
-            [(policy_params, scope)] * singleton_pool.n_parallel
-        )
-    if env_params is not None:
-        singleton_pool.run_each(
-            _worker_set_env_params,
-            [(env_params, scope)] * singleton_pool.n_parallel
-        )
 
-    if multi_task:
-        args = [(max_path_length, scope, arg) for arg in reset_arg]
-        return singleton_pool.run_collect(
-            _worker_collect_one_path,
-            threshold=max_samples,
-            args=args,
-            show_prog_bar=show_prog_bar,
-            multi_task=multi_task,
-        )
-    else:
-        return singleton_pool.run_collect(
-            _worker_collect_one_path,
-            threshold=max_samples,
-            args=(max_path_length, scope, reset_arg),
-            show_prog_bar=show_prog_bar,
-            multi_task=multi_task,
-        )
+
+    """
+   
+    #if preupdate:
+
+    singleton_pool.run_each(
+        _worker_set_policy_params,
+        [(policy_params, scope)] * singleton_pool.n_parallel
+    )
+
+    
+    return singleton_pool.run_collect(
+        _worker_collect_one_path,
+        numPaths=max_samples/max_path_length,       
+        args_list=[(max_path_length, scope, np.array(reset_arg) , taskIdx , extra_infos)] * singleton_pool.n_parallel,
+        show_prog_bar=show_prog_bar,
+        multi_task=multi_task,
+
+        
+    )
+
+
 
 
 def truncate_paths(paths, max_samples):
