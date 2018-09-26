@@ -264,12 +264,12 @@ class BaseSampler(Sampler):
             if not testitr and prefix == '1':
                 logger.record_tabular(prefix + 'AverageExpertReturn', np.mean(undiscounted_returns))
 
-            if testitr:
+            #if testitr:
 
-                logger.record_tabular(prefix + 'AverageReturn', np.mean(undiscounted_returns))
-                logger.record_tabular(prefix + 'StdReturn', np.std(undiscounted_returns))
-                logger.record_tabular(prefix + 'MaxReturn', np.max(undiscounted_returns))
-                logger.record_tabular(prefix + 'MinReturn', np.min(undiscounted_returns))
+            logger.record_tabular(prefix + 'AverageReturn', np.mean(undiscounted_returns))
+            logger.record_tabular(prefix + 'StdReturn', np.std(undiscounted_returns))
+            logger.record_tabular(prefix + 'MaxReturn', np.max(undiscounted_returns))
+            logger.record_tabular(prefix + 'MinReturn', np.min(undiscounted_returns))
 
 
             if not fast_process and not metalearn_baseline:

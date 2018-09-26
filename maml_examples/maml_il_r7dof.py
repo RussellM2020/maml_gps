@@ -13,15 +13,12 @@ from sandbox.rocky.tf.optimizers.first_order_optimizer import FirstOrderOptimize
 from sandbox.rocky.tf.envs.base import TfEnv
 # import lasagne.nonlinearities as NL
 import sandbox.rocky.tf.core.layers as L
+
+from rllab.envs.gym_env import GymEnv
 #from maml_examples.reacher_env import ReacherEnv
 #from rllab.envs.mujoco.pusher_env import PusherEnv
-from sandbox.rocky.tf.envs.base import TfEnv
-from multiworld.core.flat_goal_env import FlatGoalEnv
-from multiworld.core.finn_maml_env import FinnMamlEnv
-from multiworld.core.wrapper_env import NormalizedBoxEnv
-from multiworld.envs.mujoco.sawyer_xyz.push.sawyer_push import SawyerPushEnv 
-#from maml_examples.r7dof_env import Reacher7DofMultitaskEnv
-#from maml_examples.r7dof_vars import EXPERT_TRAJ_LOCATION_DICT, ENV_OPTIONS, default_r7dof_env_option
+from maml_examples.r7dof_env import Reacher7DofMultitaskEnv
+from maml_examples.r7dof_vars import EXPERT_TRAJ_LOCATION_DICT, ENV_OPTIONS, default_r7dof_env_option
 from maml_examples.maml_experiment_vars import MOD_FUNC
 import numpy as np
 import random as rd
@@ -32,8 +29,7 @@ import random as rd
 import tensorflow as tf
 import time
 
-#EXPERT_TRAJ_LOCATION_DICT = '/home/russellm/iclr18/maml_gps/saved_expert_traj/Expert_trajs_sawyer_pusher/'
-EXPERT_TRAJ_LOCATION_DICT = '/root/code/rllab/saved_expert_traj/Expert_trajs_sawyer_pusher/'
+
 
 beta_adam_steps_list = [(1,50)]
 
@@ -44,21 +40,21 @@ updateMode = 'vec'
 adam_curve = None
 
 # fast_learning_rates = [0.0,0.1,1.0,0.9,1.1,1.2,]
-fast_learning_rates = [0.05]
+fast_learning_rates = [1.0]
 baselines = ['linear']  # linear GaussianMLP MAMLGaussianMLP zero
 env_option = ''
 # mode = "ec2"
-mode = "local_docker"
-#extra_input = "onehot_exploration" # "onehot_exploration" "gaussian_exploration"
-extra_input = None
-extra_input_dim = None
+mode = "local"
+extra_input = "onehot_exploration" # "onehot_exploration" "gaussian_exploration"
+# extra_input = None
+extra_input_dim = 5
 # extra_input_dim = None
-goals_suffixes = [''] #,"_200_40_2", "_200_40_3","_200_40_4"]
+goals_suffixes = ["_200_40_1"] #,"_200_40_2", "_200_40_3","_200_40_4"]
 # goals_suffixes = ["_1000_40"]
 
 # fast_batch_size_list = [20,40]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
-fast_batch_size_list = [3]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
-meta_batch_size_list = [3]  # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
+fast_batch_size_list = [20]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
+meta_batch_size_list = [40]  # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
 max_path_length = 100  # 100
 num_grad_updates = 1
 meta_step_size = 0.01
@@ -72,7 +68,7 @@ test_goals_mult = 1
 bas_lr = 0.01 # baseline learning rate
 momentum=0.5
 bas_hnl = tf.nn.relu
-baslayers_list = [(100,100), ]
+baslayers_list = [(32,32), ]
 
 basas = 60 # baseline adam steps
 use_corr_term = True
@@ -98,10 +94,7 @@ for goals_suffix in goals_suffixes:
                                                             tf.set_random_seed(seed)
                                                             np.random.seed(seed)
                                                             rd.seed(seed)
-
-                                                            baseEnv = FlatGoalEnv(SawyerPushEnv(tasks=None), obs_keys=['state_observation'])
-                                                            env = TfEnv(NormalizedBoxEnv(FinnMamlEnv( baseEnv , reset_mode = 'task')))
-
+                                                            env = TfEnv(normalize(Reacher7DofMultitaskEnv()))
                                                             exp_name = str(
                                                                 'R7_IL'
                                                                 # +time.strftime("%D").replace("/", "")[0:4]
@@ -215,7 +208,7 @@ for goals_suffix in goals_suffixes:
                                                                 max_path_length=max_path_length,
                                                                 meta_batch_size=meta_batch_size,  # number of tasks sampled for beta grad update
                                                                 num_grad_updates=num_grad_updates,  # number of alpha grad updates
-                                                                n_itr=500, #100
+                                                                n_itr=50, #100
                                                                 make_video=False,
                                                                 use_maml=use_maml,
                                                                 use_pooled_goals=True,
@@ -235,7 +228,7 @@ for goals_suffix in goals_suffixes:
                                                                 importance_sampling_modifier=MOD_FUNC[ism],
                                                                 post_std_modifier_train=post_std_modifier_train,
                                                                 post_std_modifier_test=post_std_modifier_test,
-                                                                expert_trajs_dir=EXPERT_TRAJ_LOCATION_DICT,
+                                                                expert_trajs_dir=EXPERT_TRAJ_LOCATION_DICT[env_option+"."+mode+goals_suffix],
                                                                 expert_trajs_suffix="",
                                                                 seed=seed,
                                                                 extra_input=extra_input,
@@ -244,11 +237,12 @@ for goals_suffix in goals_suffixes:
                                                             )
                                                             run_experiment_lite(
                                                                 algo.train(),
-                                                                n_parallel=4,
+                                                                n_parallel=10,
                                                                 snapshot_mode="all",
                                                                 python_command='python3',
                                                                 seed=seed,
-                                                                exp_prefix='Sawyer-Pusher-20X20',
+                                                                exp_prefix=str('R7_IL_'
+                                                                               +time.strftime("%D").replace("/", "")[0:4]),
                                                                 exp_name=exp_name,
                                                                 plot=False,
                                                                 sync_s3_pkl=True,

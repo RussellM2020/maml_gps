@@ -20,6 +20,7 @@ class VecEnvExecutor(object):
         rewards = np.asarray(rewards)
         self.ts += 1
         if self.max_path_length is not None:
+
             dones[self.ts >= self.max_path_length] = True
         for (i, done) in enumerate(dones):
             if done:

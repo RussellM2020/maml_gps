@@ -45,7 +45,7 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
             grad_step_size=1.0,
             stop_grad=False,
             extra_input_dim=0,
-            num_tasks = 5,
+            num_tasks = None,
             updateMode = 'vec',
             # metalearn_baseline=False,
     ):
@@ -163,6 +163,9 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
 
             self.updateMode = updateMode
 
+
+            if num_tasks == None:
+                raise AssertionError('num_tasks is None!!!')
             self.num_tasks = num_tasks
             self.inputPlaceholders = []
             self.actionFunc_perTask_init = []
@@ -172,8 +175,6 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
                 self.actionFunc_perTask_init.append(self.set_init_actionFunc(inputPh))
 
             self.actionFunc_perTask_curr = self.actionFunc_perTask_init
-
-
 
 
     def set_init_actionFunc(self, inputPh):
@@ -315,9 +316,14 @@ class MAMLGaussianMLPPolicy(StochasticPolicy, Serializable):
         # pull new param vals out of tensorflow, so gradient computation only done once ## first is the vars, second the values
         # these are the updated values of the params after the gradient step
 
-        
         self.all_param_vals = sess.run(self.all_fast_params_tensor, feed_dict=dict(list(zip(self.input_list_for_grad, inputs))))
-     
+        # print("++++++++++++++++++++++++++++++++++++")
+        # print(self.all_param_vals[0]['b0'])
+        # print("++++++++++++++++++++++++++++++++++++")
+        # for i in self.all_param_vals[0].keys():
+        #     self.all_param_vals[0][i] = np.zeros_like(self.all_param_vals[0][i])
+
+
         if init_param_values is not None:
             self.assign_params(self.all_params, init_param_values)
 

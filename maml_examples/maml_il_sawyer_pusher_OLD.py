@@ -10,17 +10,19 @@ from sandbox.rocky.tf.optimizers.quad_dist_expert_optimizer import QuadDistExper
 from sandbox.rocky.tf.optimizers.first_order_optimizer import FirstOrderOptimizer
 
 from sandbox.rocky.tf.envs.base import TfEnv
+from multiworld.core.flat_goal_env import FlatGoalEnv
+from multiworld.core.finn_maml_env import FinnMamlEnv
+from multiworld.core.wrapper_env import NormalizedBoxEnv
 # import lasagne.nonlinearities as NL
 import sandbox.rocky.tf.core.layers as L
 
-from multi
-#from maml_examples.pusher_env import PusherEnv
-from maml_examples.r7dof_env import Reacher7DofMultitaskEnv
+from multiworld.envs.mujoco.sawyer_xyz.push.sawyer_push import SawyerPushEnv 
 
-from maml_examples.pusher_vars import EXPERT_TRAJ_LOCATION_DICT
+from maml_examples.sawyer_pusher_vars import EXPERT_TRAJ_LOCATION_DICT
 from maml_examples.maml_experiment_vars import MOD_FUNC
 import numpy as np
 import random as rd
+import joblib
 
 #from examples.trpo_push_obj import
 INPUT_FEED = None
@@ -31,13 +33,13 @@ import time
 beta_adam_steps_list = [(1,1)]
 # beta_curve = [250,250,250,250,250,5,5,5,5,1,1,1,1,] # make sure to check maml_experiment_vars
 # beta_curve = [1000] # make sure to check maml_experiment_vars
-adam_curves = [[50,50,50,50,50,50,50,50,20,20,20,20,20,20,20,20,20,20,20,20,1],
+adam_curves = [[50,50,50,50,50,50,50,50,20,20,20,20,20,20,20,20,20,20,20,20,1]]
                 # [50,50,50,50,50,50,1],
                 # [50,50,50,50,1],
                 # [20,20,1],
                 # [10],
                 # None,
-                ]  # m
+                 # m
 #adam_curves = [None]
 
 fast_learning_rates = [0.1] #[0.0001,0.001,0.01,0.1,1.0]
@@ -45,16 +47,14 @@ baselines = ['linear',]  # linear GaussianMLP MAMLGaussianMLP zero
 env_option = ''
 # mode = "ec2"
 mode = "local"
-extra_input = "onehot_exploration" # "onehot_exploration" "gaussian_exploration"
-# extra_input = None
-extra_input_dim = 25
-# extra_input_dim = None
-goals_suffixes = ["_noise"] #["_200_40_1"] #,"_200_40_2", "_200_40_3","_200_40_4"]
-# goals_suffixes = ["_1000_40"]
+#extra_input = "onehot_exploration" # "onehot_exploration" "gaussian_exploration"
+extra_input = None
+extra_input_dim = None
+goals_suffixes = [""]
 
-fast_batch_size_list = [200] # [20,60]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
-meta_batch_size_list = [40] # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
-max_path_length = 100  # 100
+fast_batch_size_list = [20] # [20,60]  # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
+meta_batch_size_list = [20] # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
+max_path_length = 150
 num_grad_updates = 1
 meta_step_size = 0.01
 pre_std_modifier_list = [5.0]
@@ -75,6 +75,10 @@ seeds = [1]
 envseeds = [6]
 use_maml = True
 test_on_training_goals = False
+
+#tasks = joblib.load('/home/russellm/multiworld/multiworld/envs/goals/Push_20X20.pkl')
+
+tasks =  [{'goal': [0, 0.7, 0.02], 'obj_init_pos':[0, 0.6, 0.02]}]
 for goals_suffix in goals_suffixes:
     for fast_learning_rate in fast_learning_rates:
         for envseed in envseeds:
@@ -95,7 +99,8 @@ for goals_suffix in goals_suffixes:
                                                                 tf.set_random_seed(seed)
                                                                 np.random.seed(seed)
                                                                 rd.seed(seed)
-                                                                env = TfEnv(normalize(PusherEnv(distractors=True)))
+                                                                baseEnv = FlatGoalEnv(SawyerPushEnv(tasks=tasks), obs_keys=['state_observation'])
+                                                                env = TfEnv(NormalizedBoxEnv(FinnMamlEnv( baseEnv , reset_mode = 'task')))
                                                                 # env = TfEnv(normalize(Reacher7DofMultitaskEnv()))
                                                                 exp_name = str(
                                                                     'PU_IL'
@@ -237,14 +242,17 @@ for goals_suffix in goals_suffixes:
                                                                     input_feed=INPUT_FEED
 
                                                                 )
+
+
+
+                                          
                                                                 run_experiment_lite(
                                                                     algo.train(),
-                                                                    n_parallel=1,
+                                                                    n_parallel=12,
                                                                     snapshot_mode="all",
                                                                     python_command='python3',
                                                                     seed=seed,
-                                                                    exp_prefix=str('PU_IL_'
-                                                                                   +time.strftime("%D").replace("/", "")[0:4]),
+                                                                    exp_prefix='SawyerPusher_parallel',
                                                                     exp_name=exp_name,
                                                                     plot=False,
                                                                     sync_s3_pkl=True,

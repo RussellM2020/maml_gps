@@ -3,12 +3,30 @@ import time
 import numpy as np
 import joblib
 from pathlib import Path
-
+from rllab.misc import special
 from rllab.misc import tensor_utils
 
 
+
+def expand_obs(obs, extra_infos = None,  pathNum = 10):
+
+  
+    if extra_infos == None:
+        return obs
+    else:
+        extraType , extra_dim , preupdate = extra_infos[0] , extra_infos[1] , extra_infos[2]
+        if extraType == "onehot_exploration":
+            if preupdate:     
+                extra = special.to_onehot(pathNum % extra_dim, extra_dim)
+                return np.concatenate([obs, extra])
+            else:               
+                extra = np.zeros(extra_dim)
+                return np.concatenate([obs, extra])
+        
+
+
 def rollout(env, agent, max_path_length=np.inf, animated=False, speedup=1, save_video=True,
-            video_filename='sim_out.mp4', reset_arg=None, use_maml=False, maml_task_index=None, maml_num_tasks=None,extra_input_dim=0, taskIdx = 0):
+            video_filename='sim_out.mp4', reset_arg=None, use_maml=False, maml_task_index=None, maml_num_tasks=None,extra_input_dim=0, taskIdx = 0 , extra_infos = None,  pathNum = 1000):
     observations = []
     actions = []
     rewards = []
@@ -16,8 +34,8 @@ def rollout(env, agent, max_path_length=np.inf, animated=False, speedup=1, save_
     env_infos = []
     images = []
     o = env.reset(reset_args=reset_arg)
-    if extra_input_dim>0 and use_maml:
-        o = np.concatenate((o,[0.0] * extra_input_dim),-1)
+    o = expand_obs(obs = o, extra_infos = extra_infos, pathNum = pathNum)
+    
     agent.reset()
     path_length = 0
     if animated:
@@ -29,15 +47,14 @@ def rollout(env, agent, max_path_length=np.inf, animated=False, speedup=1, save_
         env.render()
     while path_length < max_path_length:
 
-
-        #if not use_maml:
         a, agent_info = agent.get_perTask_action(observation=o, taskIdx = taskIdx)
         # else:
         #     a, agent_info = agent.get_action_single_env(observation=o, idx=maml_task_index, num_tasks=maml_num_tasks)
         #a, agent_info = agent.get_actions([o])
         next_o, r, d, env_info = env.step(a)
-        if extra_input_dim > 0 and use_maml:
-            next_o =np.concatenate((next_o,[0.0]*extra_input_dim),-1)
+        next_o = expand_obs(obs = next_o, extra_infos = extra_infos,  pathNum = pathNum)
+        # if extra_input_dim > 0 and use_maml:
+        #     next_o =np.concatenate((next_o,[0.0]*extra_input_dim),-1)
         observations.append(env.observation_space.flatten(o))
         rewards.append(r)
         actions.append(env.action_space.flatten(a))

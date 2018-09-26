@@ -63,6 +63,9 @@ class StatefulPool(object):
                 temp_folder="/tmp",
             )
 
+
+
+
     def run_each(self, runner, args_list=None):
         """
         Run the method on each worker process, and collect the result of execution.
@@ -78,13 +81,18 @@ class StatefulPool(object):
             results = self.pool.map_async(
                 _worker_run_each, [(runner, args) for args in args_list]
             )
+           
+            
             for i in range(self.n_parallel):
                 self.worker_queue.get()
             for i in range(self.n_parallel):
                 self.queue.put(None)
             return results.get()
+
+
         return [runner(self.G, *args_list[0])]
 
+  
     def run_map(self, runner, args_list):
         if self.n_parallel > 1:
             return self.pool.map(_worker_run_map, [(runner, args) for args in args_list])
@@ -102,7 +110,7 @@ class StatefulPool(object):
             for args in args_list:
                 yield runner(self.G, *args)
 
-    def run_collect(self, collect_once, threshold, args=None, show_prog_bar=True, multi_task=False):
+    def run_collect(self, collect_once, numPaths, args_list=None, show_prog_bar=True, multi_task=False):
         """
         Run the collector method using the worker pool. The collect_once method will receive 'G' as
         its first argument, followed by the provided args, if any. The method should return a pair of values.
@@ -120,65 +128,85 @@ class StatefulPool(object):
         :param threshold:
         :return:
         """
-        if args is None:
-            args = tuple()
-        if self.pool and multi_task:
-            manager = mp.Manager()
-            counter = manager.Value('i', 0)
-            lock = manager.RLock()
+        if args_list is None:
+            args_list = [tuple()] * self.n_parallel
+        assert len(args_list) == self.n_parallel
 
-            inputs = [(collect_once, counter, lock, threshold, arg) for arg in args]
+        # if self.pool and multi_task:
+        #     manager = mp.Manager()
+        #     counter = manager.Value('i', 0)
+        #     lock = manager.RLock()
+
+        #     inputs = [(collect_once, counter, lock, threshold, arg) for arg in args]
+        #     results = self.pool.map_async(
+        #         _worker_run_collect,
+        #         inputs,
+        #     )
+        #     if show_prog_bar:
+        #         pbar = ProgBarCounter(threshold)
+        #     last_value = 0
+        #     while True:
+        #         time.sleep(0.1)
+        #         with lock:
+        #             if counter.value >= threshold:
+        #                 if show_prog_bar:
+        #                     pbar.stop()
+        #                 break
+        #             if show_prog_bar:
+        #                 pbar.inc(counter.value - last_value)
+        #             last_value = counter.value
+        #     finished_results = results.get()
+        #     # TODO - for some reason this is buggy.
+        #     return {i:finished_results[i] for i in range(len(finished_results))}
+        # elif multi_task:
+        #     assert False # not supported
+        # elif self.pool:
+        #     manager = mp.Manager()
+        #     counter = manager.Value('i', 0)
+        #     lock = manager.RLock()
+        #     results = self.pool.map_async(
+        #         _worker_run_collect,
+        #         [(collect_once, counter, lock, threshold, args)] * self.n_parallel
+        #     )
+        #     if show_prog_bar:
+        #         pbar = ProgBarCounter(threshold)
+        #     last_value = 0
+        #     while True:
+        #         time.sleep(0.1)
+        #         with lock:
+        #             if counter.value >= threshold:
+        #                 if show_prog_bar:
+        #                     pbar.stop()
+        #                 break
+        #             if show_prog_bar:
+        #                 pbar.inc(counter.value - last_value)
+        #             last_value = counter.value
+
+            
+           
+        #     return sum(results.get(), [])
+        if self.pool:
+
             results = self.pool.map_async(
-                _worker_run_collect,
-                inputs,
+                _worker_run_collect_custom,
+               
+                [(collect_once, numPaths/self.n_parallel, args) for args in args_list]
             )
-            if show_prog_bar:
-                pbar = ProgBarCounter(threshold)
-            last_value = 0
-            while True:
-                time.sleep(0.1)
-                with lock:
-                    if counter.value >= threshold:
-                        if show_prog_bar:
-                            pbar.stop()
-                        break
-                    if show_prog_bar:
-                        pbar.inc(counter.value - last_value)
-                    last_value = counter.value
-            finished_results = results.get()
-            # TODO - for some reason this is buggy.
-            return {i:finished_results[i] for i in range(len(finished_results))}
-        elif multi_task:
-            assert False # not supported
-        elif self.pool:
-            manager = mp.Manager()
-            counter = manager.Value('i', 0)
-            lock = manager.RLock()
-            results = self.pool.map_async(
-                _worker_run_collect,
-                [(collect_once, counter, lock, threshold, args)] * self.n_parallel
-            )
-            if show_prog_bar:
-                pbar = ProgBarCounter(threshold)
-            last_value = 0
-            while True:
-                time.sleep(0.1)
-                with lock:
-                    if counter.value >= threshold:
-                        if show_prog_bar:
-                            pbar.stop()
-                        break
-                    if show_prog_bar:
-                        pbar.inc(counter.value - last_value)
-                    last_value = counter.value
+
+            for i in range(self.n_parallel):
+                self.worker_queue.get()
+            for i in range(self.n_parallel):
+                self.queue.put(None)
+
             return sum(results.get(), [])
+
         else:
             count = 0
             results = []
             if show_prog_bar:
                 pbar = ProgBarCounter(threshold)
             while count < threshold:
-                result, inc = collect_once(self.G, *args)
+                result, inc = collect_once(self.G, *args_list[0])
                 results.append(result)
                 count += inc
                 if show_prog_bar:
@@ -203,22 +231,72 @@ def _worker_run_each(all_args):
         raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 
+import tensorflow as tf
+
+
+def _worker_run_collect_custom(all_args):
+    try:
+        collect_once,  numPaths, args = all_args
+
+        singleton_pool.worker_queue.put(None)
+        singleton_pool.queue.get()
+      
+        count = 0
+        results = []
+         
+        while count <= numPaths:
+  
+            result, inc = collect_once(singleton_pool.G, *args, pathNum = count)
+            results.append(result)
+            count += 1
+            
+        return results
+
+
+    except Exception:
+        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
+
+
+
 def _worker_run_collect(all_args):
     try:
         collect_once, counter, lock, threshold, args = all_args
         collected = []
         while True:
+            # print("-----------------------------------------")
+            # vals = singleton_pool.G.policy.get_param_values()[200:300]
+            # print(vals)
+            # print("-----------------------------------------")
             with lock:
-                if counter.value >= threshold:
+                if counter.value > threshold:
                     return collected
             result, inc = collect_once(singleton_pool.G, *args)
-            collected.append(result)
+            
             with lock:
                 counter.value += inc
-                if counter.value >= threshold:
+                if counter.value > threshold:
                     return collected
+                collected.append(result)
     except Exception:
         raise Exception("".join(traceback.format_exception(*sys.exc_info())))
+
+
+
+# def _worker_run_collect(all_args):
+#     try:
+#         collect_once, counter, lock, threshold, args = all_args
+#         results = [] ; count = 0
+
+#         while count < threshold:
+#             result, inc = collect_once(singleton_pool.G, *args)
+#             results.append(result)
+#             count += inc
+#         return results
+
+
+       
+#     except Exception:
+#         raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 
 def _worker_run_map(all_args):

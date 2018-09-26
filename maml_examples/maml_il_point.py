@@ -19,15 +19,15 @@ import random as rd
 
 taskPoolSize = 1000
 mode = 'local'
-updateMode = 'parallel'
+updateMode = 'vec'
 #other option is updateMode = vec
 beta_adam_steps_list = [(1,3)] #,(1,100)]  # , ## maybe try 1 and 10 to compare, we know that 1 is only slightly worse than 5
 
 fast_learning_rates = [1.0]  #1.0 seems to work best
 baselines = ['linear']
 
-fast_batch_size =  20 # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
-meta_batch_size = 40  # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
+fast_batch_size =  20 #20 # 20 # 10 works for [0.1, 0.2], 20 doesn't improve much for [0,0.2]  #inner grad update size
+meta_batch_size = 20 #40  # 40 @ 10 also works, but much less stable, 20 is fairly stable, 40 is more stable
 max_path_length = 100  # 100
 num_grad_updates = 1
 meta_step_size = 0.01 # 0.01
@@ -94,7 +94,7 @@ for seed in seeds:
                                         meta_batch_size=meta_batch_size, ## number of tasks sampled for beta grad update
                                         taskPoolSize = taskPoolSize,
                                         num_grad_updates=num_grad_updates, ## number of alpha grad updates per beta update
-                                        n_itr=12, #100
+                                        n_itr=100, #100
                                         use_maml=use_maml,
                                         use_pooled_goals=True,
                                         step_size=meta_step_size,
@@ -112,10 +112,10 @@ for seed in seeds:
 
                                     run_experiment_lite(
                                         algo.train(),
-                                        n_parallel=1,
+                                        n_parallel=10,
                                         snapshot_mode="all",
                                         python_command='python3',
-                                        seed=10,
+                                        seed=107,
                                         exp_prefix='pointMass_parallel',
                                         exp_name=str(seed)
                                                  # +str(int(use_maml))

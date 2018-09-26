@@ -35,6 +35,9 @@ import time
 #EXPERT_TRAJ_LOCATION_DICT = '/home/russellm/iclr18/maml_gps/saved_expert_traj/Expert_trajs_sawyer_pusher/'
 EXPERT_TRAJ_LOCATION_DICT = '/root/code/rllab/saved_expert_traj/Expert_trajs_sawyer_pusher/'
 
+
+
+
 beta_adam_steps_list = [(1,50)]
 
 updateMode = 'vec'

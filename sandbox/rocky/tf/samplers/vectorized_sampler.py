@@ -44,6 +44,11 @@ class VectorizedSampler(BaseSampler):
         self.vec_env.terminate()
 
 
+
+
+    
+
+
     def obtain_samples(self, itr, reset_args=None, return_dict=False, log_prefix='', extra_input=None, extra_input_dim=None, preupdate=False, save_img_obs=False, numTrajs_perTask = None):
         # reset_args: arguments to pass to the environments to reset
         # return_dict: whether or not to return a dictionary or list form of paths
@@ -116,7 +121,6 @@ class VectorizedSampler(BaseSampler):
         policy_time = 0
         env_time = 0
         process_time = 0
-
         policy = self.algo.policy
         import time
 
@@ -127,6 +131,7 @@ class VectorizedSampler(BaseSampler):
             # print("debug, agent_infos", agent_infos)
             policy_time += time.time() - t
             t = time.time()
+
             next_obses, rewards, dones, env_infos = self.vec_env.step(actions, reset_args)   # TODO: instead of receive obs from env, we'll receive it from the policy as a feed_dict
             next_obses = expand_obs(next_obses,path_nums)
             env_time += time.time() - t

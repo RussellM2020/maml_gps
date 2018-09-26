@@ -4,12 +4,12 @@ from sandbox.rocky.tf.samplers.batch_sampler import BatchSampler
 from sandbox.rocky.tf.samplers.vectorized_sampler import VectorizedSampler
 from rllab.sampler.stateful_pool import singleton_pool
 from copy import deepcopy
-import matplotlib
-matplotlib.use('Pdf')
+# import matplotlib
+# matplotlib.use('Pdf')
 import itertools
 
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import os.path as osp
 import rllab.misc.logger as logger
 import rllab.plotter as plotter
@@ -42,7 +42,7 @@ class BatchMAMLPolopt(RLAlgorithm):
             batch_size=100,
             max_path_length=500,
             meta_batch_size=100,
-            taskPoolSize = 20,
+           
             num_grad_updates=1,
             num_grad_updates_for_testing=1,
             discount=0.99,
@@ -137,9 +137,9 @@ class BatchMAMLPolopt(RLAlgorithm):
 
         self.updateMode = updateMode
 
-        self.taskPoolSize = taskPoolSize
+        #self.taskPoolSize = taskPoolSize
         self.meta_batch_size = meta_batch_size  # number of tasks
-        assert meta_batch_size <= taskPoolSize
+        # assert meta_batch_size <= taskPoolSize
 
         self.num_grad_updates = num_grad_updates  # number of gradient steps during training
         self.num_grad_updates_for_testing = num_grad_updates_for_testing  # number of gradient steps during training
@@ -171,25 +171,31 @@ class BatchMAMLPolopt(RLAlgorithm):
                 assert goals_pool_to_load is None, "expert_trajs already comes with its own goals, please disable goals_pool_to_load"
                 goals_pool = joblib.load(self.expert_trajs_dir+"goals_pool.pkl")
                 self.goals_pool = goals_pool['goals_pool']
-                self.numTasks  = len(self.goals_pool)
-                # if 'idxs_dict' in goals_pool:
-                #     self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
-
-                #else:
-                self.goals_idxs_for_itr_dict = {}
-                
-                assert self.meta_batch_size <= self.taskPoolSize
-                for i in range(self.n_itr):
-                    self.goals_idxs_for_itr_dict[i] = np.arange(40)
-                    #np.random.choice(np.arange(self.taskPoolSize), self.meta_batch_size, replace = False)
-                
-
+                #self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
                 if "demos_path" in goals_pool.keys():
                     self.demos_path = goals_pool["demos_path"]
                 else:
                     self.demos_path = expert_trajs_dir
+                #print("successfully extracted goals pool", self.goals_idxs_for_itr_dict.keys(), self.goals_idxs_for_itr_dict[0], self.goals_idxs_for_itr_dict[1])
 
-                print("successfully extracted goals pool", self.goals_idxs_for_itr_dict.keys(), self.goals_idxs_for_itr_dict[0], self.goals_idxs_for_itr_dict[1])
+                self.numTasks  = len(self.goals_pool)
+                if 'idxs_dict' in goals_pool:
+                    self.goals_idxs_for_itr_dict = goals_pool['idxs_dict']
+
+                else:
+                    self.goals_idxs_for_itr_dict = {}
+                    
+                    #assert self.meta_batch_size <= self.taskPoolSize
+                    for i in range(self.n_itr):
+                        self.goals_idxs_for_itr_dict[i] = np.random.choice(np.arange(self.numTasks), self.meta_batch_size, replace = False)
+                
+
+                # if "demos_path" in goals_pool.keys():
+                #     self.demos_path = goals_pool["demos_path"]
+                # else:
+                #     self.demos_path = expert_trajs_dir
+
+                # print("successfully extracted goals pool", self.goals_idxs_for_itr_dict.keys(), self.goals_idxs_for_itr_dict[0], self.goals_idxs_for_itr_dict[1])
             elif goals_pool_to_load is not None:
                 logger.log("Loading goals pool from %s ..." % goals_pool_to_load)
                 self.goals_pool = joblib.load(goals_pool_to_load)['goals_pool']
@@ -283,6 +289,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         # This obtains samples using self.policy, and calling policy.get_actions(obses)
         # return_dict specifies how the samples should be returned (dict separates samples
         # by task)
+        reset_args = np.array(reset_args)
         if mode == 'vec':
             sampler = self.vec_sampler
         else:
@@ -358,7 +365,7 @@ class BatchMAMLPolopt(RLAlgorithm):
         return offpol_trajs
 
     def process_samples(self, itr, paths, prefix='', log=True, fast_process=False, testitr=False, metalearn_baseline=False):
-        return self.parallel_sampler.process_samples(itr, paths, prefix=prefix, log=log, fast_process=fast_process, testitr=testitr, metalearn_baseline=metalearn_baseline)
+        return self.vec_sampler.process_samples(itr, paths, prefix=prefix, log=log, fast_process=fast_process, testitr=testitr, metalearn_baseline=metalearn_baseline)
         #vec sampler and parallel sampler both call process samples in base
 
     def train(self):
@@ -419,15 +426,22 @@ class BatchMAMLPolopt(RLAlgorithm):
                         self.policy.perTask_switch_to_init_dist()  # Switch to pre-update policy
                         
                         if itr in self.testing_itrs:
+                          
                             env = self.env
-                           
-                            goals_to_use = self.goals_to_use_dict[itr]
-                            goals_to_use_indices = self.goals_idxs_for_itr_dict[itr]
-                            
-                            print("Debug11", goals_to_use)
-                            # else:
-                            #     goals_to_use = env.sample_goals(self.meta_batch_size)
-                            #self.goals_to_use_dict[itr] = goals_to_use if beta_step==0 else np.concatenate((self.goals_to_use_dict[itr],goals_to_use))
+                            while 'sample_goals' not in dir(env):
+
+                                env = env.wrapped_env
+                            if self.test_on_training_goals:
+                                
+                                # goals_to_use = self.goals_pool[self.meta_batch_size*beta_step:self.meta_batch_size*(beta_step+1)]
+                                goals_to_use = self.goals_to_use_dict[itr]
+                                print("Debug11", goals_to_use)
+                            else:
+                                
+                               
+                                goals_to_use = env.sample_goals(self.meta_batch_size)
+                            self.goals_to_use_dict[itr] = goals_to_use if beta_step==0 else np.concatenate((self.goals_to_use_dict[itr],goals_to_use))
+
                         for step in range(num_inner_updates+1): # inner loop
                             logger.log('** Betastep %s ** Step %s **' % (str(beta_step), str(step)))
                             logger.log("Obtaining samples...")
@@ -437,7 +451,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                                     print('debug12.0.0, test-time sampling step=', step) #, goals_to_use)
                                     paths = self.obtain_samples(itr=itr, reset_args=goals_to_use,
                                                                     log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=True, mode = 'parallel')
-                                    paths = store_agent_infos(paths)  # agent_infos_orig is populated here
+                                    paths = store_agent_infos(paths)  # agent_infos_orig is _taskd here
 
                                 elif step == num_inner_updates:
                                     print('debug12.0.1, test-time sampling step=', step) #, goals_to_use)
@@ -445,6 +459,8 @@ class BatchMAMLPolopt(RLAlgorithm):
                                     
                                     paths = self.obtain_samples(itr=itr, reset_args=goals_to_use,
                                                                     log_prefix=str(beta_step) + "_" + str(step),testitr=True,preupdate=False, mode = self.updateMode)
+
+                                  
                                     all_postupdate_paths.extend(paths.values())
 
                             elif self.expert_trajs_dir is None or (beta_step == 0 and step < num_inner_updates):
@@ -462,6 +478,8 @@ class BatchMAMLPolopt(RLAlgorithm):
                                                                          
                                                                          treat_as_expert_traj=True,
                                                                          log_prefix=str(beta_step)+"_"+str(step))
+                                
+
                             else:
                                 assert False, "we shouldn't be able to get here"
 
@@ -492,7 +510,7 @@ class BatchMAMLPolopt(RLAlgorithm):
 
 
                             if step == num_inner_updates:
-                                #logger.record_tabular("AverageReturnLastTest", self.sampler.memory["AverageReturnLastTest"],front=True)  #TODO: add functionality for multiple grad steps
+                                logger.record_tabular("AverageReturnLastTest", self.parallel_sampler.memory["AverageReturnLastTest"],front=True)  #TODO: add functionality for multiple grad steps
                                 logger.record_tabular("TestItr", ("1" if testitr else "0"),front=True)
                                 logger.record_tabular("MetaItr", self.metaitr,front=True)
                            
@@ -528,7 +546,7 @@ class BatchMAMLPolopt(RLAlgorithm):
                     logger.record_tabular('ItrTime', time.time() - itr_start_time)
                     logger.dump_tabular(with_prefix=False)
 
-                    self.plotTrajs(itr, all_paths_for_plotting)
+                    #self.plotTrajs(itr, all_paths_for_plotting)
         self.shutdown_worker()
 
     
@@ -538,8 +556,22 @@ class BatchMAMLPolopt(RLAlgorithm):
         all_expert_trajs = {}
         
         for taskidx in range(self.numTasks):
+            try:
+                demos =  joblib.load(self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl")
 
-            all_expert_trajs[taskidx] =  joblib.load(self.demos_path+str(taskidx)+self.expert_trajs_suffix+".pkl")
+                if self.extra_input is not None:
+                    demos_plus_ei=[]
+                    for demo in demos:
+                        extra=np.zeros((np.shape(demo['observations'])[0], self.extra_input_dim))
+                        obs_plus_ei = np.concatenate((demo['observations'],extra),-1)
+                        demo['observations'] = obs_plus_ei
+                        demos_plus_ei.append(demo)
+
+                    all_expert_trajs[taskidx] = demos_plus_ei
+                else:
+                    all_expert_trajs[taskidx] = demos
+            except:
+                print('File_'+str(taskidx)+'_not present')
 
         return all_expert_trajs
 
